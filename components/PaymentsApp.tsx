@@ -322,10 +322,15 @@ function DepositBitcart() {
     setStatus('pending'); setExpiresAt(inv.expiresAt); setCreating(false);
   };
 
-  const openModal = () => {
-    if ((window as any)?.bitcart?.showInvoice && invoice?.id) { (window as any).bitcart.showInvoice(invoice.id); return; }
-    alert(`Bitcart modal недоступен (dev). Подключите <script src="${ENV.BITCART_ADMIN_URL.replace(/\\/$/, '')}/modal/bitcart.js"> или задайте NEXT_PUBLIC_BITCART_ADMIN_URL`);
-  };
+ const openModal = () => {
+  if ((window as any)?.bitcart?.showInvoice && invoice?.id) {
+    (window as any).bitcart.showInvoice(invoice.id);
+    return;
+  }
+  const modalSrc = `${ENV.BITCART_ADMIN_URL.replace(/\/$/, '')}/modal/bitcart.js`;
+  alert(`Bitcart modal недоступен (dev). Подключите <script src="${modalSrc}"> или задайте NEXT_PUBLIC_BITCART_ADMIN_URL`);
+};
+
 
   const markPaid = async () => {
     if (!invoice?.id) return;
