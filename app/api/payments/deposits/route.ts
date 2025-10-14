@@ -1,41 +1,73 @@
 import { NextRequest, NextResponse } from "next/server";
+
 function normalizeApi(url: string) {
   if (!url) return url;
-  // если по ошибке поставили /admin — убираем
-  url = url.replace(/\/admin\/?$/i, '');
-  // если уже /api — оставляем, иначе добавляем
-  if (url.endsWith('/api')) return url;
-  return url.replace(/\/$/, '') + '/api';
+  url = url.replace(/\/admin\/?$/i, "");          // срежем /admin
+  if (url.endsWith("/api")) return url;
+  return url.replace(/\/$/, "") + "/api";
 }
-const RAW_API   = process.env.BITCART_API_URL || "";
-const API       = normalizeApi(RAW_API);
-const RAW_AUTH  = process.env.BITCART_TOKEN || "";
-const AUTH      = RAW_AUTH.startsWith("Token ") ? RAW_AUTH : `Token ${RAW_AUTH}`;
-const STORE_ID  = process.env.BITCART_STORE_ID!;
-const APP_BASE  = process.env.APP_BASE_URL || "";
+
+const RAW_API = process.env.BITCART_API_URL || "";
+const API = normalizeApi(RAW_API);
+const RAW_AUTH = process.env.BITCART_TOKEN || "";
+const AUTH = RAW_AUTH.startsWith("Token ") ? RAW_AUTH : `Token ${RAW_AUTH}`;
+const STORE = process.env.BITCART_STORE_ID || "";
+const APP_BASE = (process.env.APP_BASE_URL || "").replace(/\/$/, "");
+
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { price, currency = "USDT", username, network, metadata } = body ?? {};
-    if (!price || !STORE_ID) return NextResponse.json({ error: "price or STORE_ID missing"}, { status: 400 });
-    const invoiceCreation = {
-      price, store_id: STORE_ID, currency,
-      order_id: `byvc_${Date.now()}`,
-      notification_url: APP_BASE ? `${APP_BASE}/api/webhooks/bitcart` : undefined,
-      redirect_url: APP_BASE ? `${APP_BASE}/payments/success` : undefined,
-      metadata: { username, network, ...metadata },
-    } as any;
+    const { price, currency = "USDT", username, network, metadata } = await req.json();
+
+    // тело запроса для Bitcart: ВАЖНО — ключ магазина "store"
+    const payload = {
+      store: STORE,
+      price: Number(price),
+      currency,
+      metadata: { username, network, ...(metadata || {}) },
+      // полезно сразу передать URL'ы
+      notification_url: `${APP_BASE}/api/webhooks/bitcart`,
+      redirect_url: `${APP_BASE}/payments/success`,
+    };
+
     const res = await fetch(`${API}/invoices`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: AUTH },
-      body: JSON.stringify(invoiceCreation), cache: "no-store",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      // чтобы не кэшировалось в edge
+      cache: "no-store",
     });
-    if (!res.ok) return NextResponse.json({ error: await res.text() }, { status: 400 });
-    const data = await res.json();
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[bitcart:create-invoice] HTTP", res.status, text);
+        console.log("[bitcart] API:", API, "STORE:", STORE);
+      }
+      return NextResponse.json({ error: text || "create invoice failed" }, { status: res.status || 400 });
+    }
+
+    const inv = await res.json();
+
+    // берём ссылку на оплату из разных возможных полей Bitcart
+    const payUrl =
+      inv?.public_url ||
+      inv?.checkout_link ||
+      inv?.links?.checkout ||
+      inv?.pay_url ||
+      null;
+
     return NextResponse.json({
-      id: data.id, price: data.price, currency: data.currency,
-      payUrl: data.payment_url ?? data.pay_url,
-      expiresAt: data.expiration ?? Date.now() + 15 * 60 * 1000
+      id: inv?.id,
+      price: inv?.price ?? Number(price),
+      currency: inv?.currency ?? currency,
+      payUrl,
+      expiresAt: inv?.expiration || inv?.expires_at || null,
+      raw: { status: inv?.status, payment_status: inv?.payment_status, state: inv?.state },
     });
-  } catch (e:any) { return NextResponse.json({ error: e?.message || "failed" }, { status: 500 }); }
+  } catch (e: any) {
+    if (process.env.NODE_ENV !== "production") {
+      console.error("[bitcart:create-invoice] exception", e?.message || e);
+    }
+    return NextResponse.json({ error: e?.message || "error" }, { status: 500 });
+  }
 }
