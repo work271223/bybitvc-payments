@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-function normalizeApi(url: string) { if (!url) return url; return url.endsWith('/api') ? url : url.replace(/\/$/, '') + '/api'; }
+function normalizeApi(url: string) {
+  if (!url) return url;
+  // если по ошибке поставили /admin — убираем
+  url = url.replace(/\/admin\/?$/i, '');
+  // если уже /api — оставляем, иначе добавляем
+  if (url.endsWith('/api')) return url;
+  return url.replace(/\/$/, '') + '/api';
+}
 const RAW_API  = process.env.BITCART_API_URL || "";
 const API      = normalizeApi(RAW_API);
 const RAW_AUTH = process.env.BITCART_TOKEN || "";
