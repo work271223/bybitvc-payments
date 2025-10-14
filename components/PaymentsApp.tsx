@@ -322,14 +322,17 @@ function DepositBitcart() {
     setStatus('pending'); setExpiresAt(inv.expiresAt); setCreating(false);
   };
 
- const openModal = () => {
+// components/PaymentsApp.tsx — замени эту функцию
+const openModal = () => {
   if ((window as any)?.bitcart?.showInvoice && invoice?.id) {
     (window as any).bitcart.showInvoice(invoice.id);
     return;
   }
+  // ключевая правка: собираем src отдельно, без "/modal..." сразу после "}"
   const modalSrc = `${ENV.BITCART_ADMIN_URL.replace(/\/$/, '')}/modal/bitcart.js`;
   alert(`Bitcart modal недоступен (dev). Подключите <script src="${modalSrc}"> или задайте NEXT_PUBLIC_BITCART_ADMIN_URL`);
 };
+
 
 
   const markPaid = async () => {
