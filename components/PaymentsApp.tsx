@@ -615,13 +615,18 @@ function DepositBitcart() {
   };
 
   // открыть checkout (проверка оплаты)
-  const openCheckout = () => {
-    if (invoice?.payUrl) {
-      window.open(invoice.payUrl, "_blank", "noopener,noreferrer");
-    } else {
-      setDetailsOpen(true);
-    }
-  };
+const openCheckout = () => {
+  if (!invoice?.id) return;
+  const admin = (ENV.BITCART_ADMIN_URL || "").replace(/\/$/, "");
+  const url = invoice?.payUrl || (admin ? `${admin}/i/${invoice.id}` : "");
+  if (url) {
+    window.open(url, "_blank", "noopener,noreferrer");
+  } else {
+    // на крайний случай хоть реквизиты покажем
+    setDetailsOpen(true);
+  }
+};
+
 
   const markPaid = async () => {
     if (!invoice?.id) return;

@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
-/** Normalize Bitcart API base URL */
+/** Нормализуем Bitcart API base URL */
 function normalizeApi(url: string) {
   if (!url) return "";
-  // если по ошибке указали ссылку на админку — убираем /admin в конце
+  // если по ошибке указали ссылку на админку — убираем /admin на конце
   url = url.replace(/\/admin\/?$/i, "");
-  // гарантируем, что база заканчивается на /api
+  // гарантируем окончание на /api
   if (url.endsWith("/api")) return url;
   return url.replace(/\/$/, "") + "/api";
 }
@@ -14,33 +14,20 @@ function normalizeApi(url: string) {
 const RAW_API = process.env.BITCART_API_URL || "";
 const API = normalizeApi(RAW_API);
 
+// База «админки»/публичной витрины (для /i/<invoice_id>)
+const ADMIN_BASE = RAW_API ? RAW_API.replace(/\/api\/?$/i, "") : "";
+
 const RAW_AUTH = process.env.BITCART_TOKEN || "";
 const AUTH = RAW_AUTH.startsWith("Token ") ? RAW_AUTH : `Token ${RAW_AUTH}`;
 
 const STORE = process.env.BITCART_STORE_ID || "";
 
-// База для webhook/redirect (если не задана — возьмём origin запроса)
+// Можно явно задать базу для вебхуков/редиректа через ENV
 const APP_BASE_ENV = (process.env.APP_BASE_URL || "").replace(/\/$/, "");
 
-/** helpers */
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
+/** Единообразный ответ-ошибка */
 function err(status: number, message: string) {
   return NextResponse.json({ error: message }, { status });
-}
-
-/** Достаём адрес из разных форматов ответа Bitcart */
-function extractAddress(obj: any): string | null {
-  if (!obj) return null;
-  return (
-    obj.address ||
-    obj.payment_address ||
-    obj?.payment?.address ||
-    obj?.payments?.[0]?.address ||
-    obj?.addresses?.[0] ||
-    obj?.payment_method?.address ||
-    null
-  );
 }
 
 /**
@@ -55,7 +42,7 @@ function extractAddress(obj: any): string | null {
  */
 export async function POST(req: NextRequest) {
   try {
-    // sanity-check ENV — сразу видно, что не так
+    // sanity-check ENV
     if (!API) return err(500, "BITCART_API_URL is not configured");
     if (!AUTH) return err(500, "BITCART_TOKEN is not configured");
     if (!STORE) return err(500, "BITCART_STORE_ID is not configured");
@@ -71,7 +58,7 @@ export async function POST(req: NextRequest) {
       price: number;
       currency?: string;
       username?: string;
-      network?: string;
+      network?: string; // "TRC20" | "BEP20" | "ERC20"
       metadata?: Record<string, any>;
     } = body || {};
 
@@ -80,8 +67,8 @@ export async function POST(req: NextRequest) {
       return err(400, "price must be a positive number");
     }
 
-    // нормализуем сеть (положим в metadata и вернём фронту)
-    const net = (network || "").toString().trim().toUpperCase(); // "TRC20" | "BEP20" | "ERC20" | ""
+    // нормализуем сеть (используем в metadata и отдадим фронту)
+    const net = (network || "").toString().trim().toUpperCase();
 
     const meta = {
       username: username || null,
@@ -89,19 +76,19 @@ export async function POST(req: NextRequest) {
       ...metadata,
     };
 
+    // база для вебхуков/редиректа: ENV или origin запроса
     const baseUrl = APP_BASE_ENV || new URL(req.url).origin;
 
-    // собираем payload для Bitcart
+    // payload для Bitcart
     const payload: Record<string, any> = {
-      store_id: STORE, // ВАЖНО: ключ именно store_id
+      store_id: STORE,                // ВАЖНО: именно store_id
       price: amount,
-      currency, // USDT
+      currency,                       // USDT
       metadata: meta,
       notification_url: `${baseUrl}/api/webhooks/bitcart`,
       redirect_url: `${baseUrl}/payments/success`,
     };
 
-    // 1) создаём инвойс
     const res = await fetch(`${API}/invoices`, {
       method: "POST",
       headers: {
@@ -122,39 +109,30 @@ export async function POST(req: NextRequest) {
     }
 
     const inv: any = await res.json().catch(() => ({}));
+    const id: string | undefined = inv?.id;
 
-    // возможные ссылки на оплату
-    const payUrl =
+    // удобная ссылка на оплату из ответа Bitcart
+    let payUrl: string | null =
       inv?.public_url ||
       inv?.checkout_link ||
       inv?.links?.checkout ||
       inv?.pay_url ||
       null;
 
-    const id = inv?.id;
+    // ФОЛБЕК: если Bitcart не дал ссылку, строим сами /i/<invoice_id>
+    if (!payUrl && id && ADMIN_BASE) {
+      payUrl = `${ADMIN_BASE.replace(/\/$/, "")}/i/${id}`;
+    }
+
+    // срок жизни инвойса
     const expiresAt = inv?.expiration || inv?.expires_at || null;
 
-    // 2) пытаемся достать адрес сразу из ответа
-    let address = extractAddress(inv);
-
-    // 3) если адреса нет — коротко подождём и спросим инвойс по ID
-    //    (часто адрес появляется спустя сотни миллисекунд)
-    if (!address && id) {
-      // до 5 попыток, с задержкой 400мс (≈2 секунды максимум)
-      for (let i = 0; i < 5; i++) {
-        await sleep(400);
-        const r = await fetch(`${API}/invoices/${id}`, {
-          headers: { Authorization: AUTH },
-          cache: "no-store",
-        }).catch(() => null);
-
-        if (r && r.ok) {
-          const fresh = await r.json().catch(() => ({}));
-          address = extractAddress(fresh);
-          if (address) break;
-        }
-      }
-    }
+    // иногда Bitcart отдаёт адрес сразу, иногда — только в checkout
+    const address =
+      inv?.address ||
+      inv?.payment_address ||
+      inv?.payment?.address ||
+      null;
 
     return NextResponse.json({
       id,
@@ -162,7 +140,7 @@ export async function POST(req: NextRequest) {
       currency: inv?.currency ?? currency,
       payUrl,
       expiresAt,
-      address: address || null,
+      address,
       network: net || null,
       raw: {
         status: inv?.status,
