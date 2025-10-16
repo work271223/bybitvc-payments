@@ -156,11 +156,15 @@ const api = {
       };
 
     const a = Number(inv.price || 0);
-    const hadBonus = !!urec.bonuses?.firstBonusApplied;
-    const qualifies = a >= 100 && !hadBonus;
-    the:
-    const tier = qualifies ? (a >= 500 ? 200 : 100) : 0;
-    const bonusAmt = +((a * tier) / 100).toFixed(2);
+    --- a/components/PaymentsApp.tsx
++++ b/components/PaymentsApp.tsx
+@@ -156,10 +156,9 @@ const api = {
+     const hadBonus = !!urec.bonuses?.firstBonusApplied;
+     const qualifies = a >= 100 && !hadBonus;
+-    the:
+     const tier = qualifies ? (a >= 500 ? 200 : 100) : 0;
+     const bonusAmt = +((a * tier) / 100).toFixed(2);
+
 
     urec.balance = Number(urec.balance || 0) + a + bonusAmt;
     urec.cardActive = !!(urec.cardActive || a >= 100);
