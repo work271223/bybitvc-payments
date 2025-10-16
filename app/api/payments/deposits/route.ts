@@ -19,13 +19,28 @@ const AUTH = RAW_AUTH.startsWith("Token ") ? RAW_AUTH : `Token ${RAW_AUTH}`;
 
 const STORE = process.env.BITCART_STORE_ID || "";
 
-// Можно явно задать базу для вебхуков/редиректа через ENV,
-// иначе возьмём origin из запроса.
+// База для webhook/redirect (если не задана — возьмём origin запроса)
 const APP_BASE_ENV = (process.env.APP_BASE_URL || "").replace(/\/$/, "");
 
-/** Единообразный ответ-ошибка */
+/** helpers */
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 function err(status: number, message: string) {
   return NextResponse.json({ error: message }, { status });
+}
+
+/** Достаём адрес из разных форматов ответа Bitcart */
+function extractAddress(obj: any): string | null {
+  if (!obj) return null;
+  return (
+    obj.address ||
+    obj.payment_address ||
+    obj?.payment?.address ||
+    obj?.payments?.[0]?.address ||
+    obj?.addresses?.[0] ||
+    obj?.payment_method?.address ||
+    null
+  );
 }
 
 /**
@@ -65,7 +80,7 @@ export async function POST(req: NextRequest) {
       return err(400, "price must be a positive number");
     }
 
-    // нормализуем сеть (используем в metadata и отдадим назад фронту)
+    // нормализуем сеть (положим в metadata и вернём фронту)
     const net = (network || "").toString().trim().toUpperCase(); // "TRC20" | "BEP20" | "ERC20" | ""
 
     const meta = {
@@ -74,19 +89,19 @@ export async function POST(req: NextRequest) {
       ...metadata,
     };
 
-    // база для вебхуков/редиректа
     const baseUrl = APP_BASE_ENV || new URL(req.url).origin;
 
     // собираем payload для Bitcart
     const payload: Record<string, any> = {
-      store_id: STORE,        // ВАЖНО: ключ именно store_id
+      store_id: STORE, // ВАЖНО: ключ именно store_id
       price: amount,
-      currency,               // USDT
+      currency, // USDT
       metadata: meta,
       notification_url: `${baseUrl}/api/webhooks/bitcart`,
       redirect_url: `${baseUrl}/payments/success`,
     };
 
+    // 1) создаём инвойс
     const res = await fetch(`${API}/invoices`, {
       method: "POST",
       headers: {
@@ -103,13 +118,12 @@ export async function POST(req: NextRequest) {
         console.error("[bitcart:create-invoice] HTTP", res.status, text);
         console.log("[bitcart] API:", API, "STORE:", STORE);
       }
-      // пробрасываем статус Bitcart — так проще диагностировать (400/401/422/…)
       return err(res.status || 400, text || "create invoice failed");
     }
 
     const inv: any = await res.json().catch(() => ({}));
 
-    // пробуем вытащить наиболее удобную ссылку на оплату
+    // возможные ссылки на оплату
     const payUrl =
       inv?.public_url ||
       inv?.checkout_link ||
@@ -117,24 +131,39 @@ export async function POST(req: NextRequest) {
       inv?.pay_url ||
       null;
 
-    // срок жизни инвойса
+    const id = inv?.id;
     const expiresAt = inv?.expiration || inv?.expires_at || null;
 
-    // иногда Bitcart отдаёт адрес прямо на создании инвойса (в зав-ти от конфигурации)
-    const address =
-      inv?.address ||
-      inv?.payment_address ||
-      inv?.payment?.address ||
-      null;
+    // 2) пытаемся достать адрес сразу из ответа
+    let address = extractAddress(inv);
+
+    // 3) если адреса нет — коротко подождём и спросим инвойс по ID
+    //    (часто адрес появляется спустя сотни миллисекунд)
+    if (!address && id) {
+      // до 5 попыток, с задержкой 400мс (≈2 секунды максимум)
+      for (let i = 0; i < 5; i++) {
+        await sleep(400);
+        const r = await fetch(`${API}/invoices/${id}`, {
+          headers: { Authorization: AUTH },
+          cache: "no-store",
+        }).catch(() => null);
+
+        if (r && r.ok) {
+          const fresh = await r.json().catch(() => ({}));
+          address = extractAddress(fresh);
+          if (address) break;
+        }
+      }
+    }
 
     return NextResponse.json({
-      id: inv?.id,
+      id,
       price: inv?.price ?? amount,
       currency: inv?.currency ?? currency,
       payUrl,
       expiresAt,
-      address,
-      network: net || null, // отдадим фронту, чтобы он знал, какую сеть запрашивали
+      address: address || null,
+      network: net || null,
       raw: {
         status: inv?.status,
         payment_status: inv?.payment_status,
