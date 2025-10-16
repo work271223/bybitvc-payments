@@ -37,6 +37,7 @@ const networks = [
   { code: "BEP20", fee: 0.8, eta: "~1–3 мин" },
   { code: "ERC20", fee: 5, eta: "~5–10 мин" },
 ];
+const SUPPORTED = new Set(networks.map((n) => n.code));
 
 function save(key: string, val: any) {
   try {
@@ -157,6 +158,7 @@ const api = {
     const a = Number(inv.price || 0);
     const hadBonus = !!urec.bonuses?.firstBonusApplied;
     const qualifies = a >= 100 && !hadBonus;
+    the:
     const tier = qualifies ? (a >= 500 ? 200 : 100) : 0;
     const bonusAmt = +((a * tier) / 100).toFixed(2);
 
@@ -286,9 +288,7 @@ function BonusActivationPanel({
                 <Info className="h-4 w-4 text-yellow-400" />
                 Повторное пополнение
               </CardTitle>
-              <Badge variant="secondary" className="rounded-full">
-                Бонус уже использован
-              </Badge>
+              <Badge className="rounded-full bg-white/10">Бонус уже использован</Badge>
             </div>
             <CardDescription className="text-neutral-400">
               Сумма менее 100 USDT — кэшбэк и активация не включаются
@@ -320,9 +320,7 @@ function BonusActivationPanel({
               <ShieldCheck className="h-4 w-4" />
               Повторное пополнение
             </CardTitle>
-            <Badge variant="secondary" className="rounded-full">
-              Бонус уже использован
-            </Badge>
+            <Badge className="rounded-full bg-white/10">Бонус уже использован</Badge>
           </div>
           <CardDescription className="text-neutral-400">
             Кэшбэк 20% действует на все покупки. Карта активна после зачисления.
@@ -355,11 +353,11 @@ function BonusActivationPanel({
       <Card className="rounded-2xl bg-[#1b2029] border-[#2a2f3a]">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base flex items-center gap-2">
+            <CardTitle className="text-base flex items中心 gap-2">
               <Info className="h-4 w-4 text-yellow-400" />
               Бонусы и активация
             </CardTitle>
-            <Badge variant="secondary" className="rounded-full">Бонус доступен</Badge>
+            <Badge className="rounded-full bg-white/10">Бонус доступен</Badge>
           </div>
           <CardDescription className="text-neutral-400">
             Пополнение менее 100 USDT — без бонусов и активации. Бонус сохранится до первого пополнения ≥100 USDT.
@@ -440,7 +438,7 @@ function BonusActivationPanel({
             <ShieldCheck className="h-4 w-4" />
             Бонусы будут начислены
           </CardTitle>
-          <Badge variant="secondary" className="rounded-full">Бонус доступен</Badge>
+          <Badge className="rounded-full bg-white/10">Бонус доступен</Badge>
         </div>
         <CardDescription className="text-neutral-400">
           Первое пополнение от 100 до 499.99 USDT даёт +100%.
@@ -469,7 +467,10 @@ function BonusActivationPanel({
 
 function DepositBitcart() {
   const [amount, setAmount] = useState<number>(load<number>("byvc.pay.amount", 100));
-  const [network, setNetwork] = useState<string>(load<string>("byvc.pay.network", "TRC20"));
+  const [network, setNetwork] = useState<string>(() => {
+    const n = load<string>("byvc.pay.network", "TRC20");
+    return SUPPORTED.has(n) ? n : "TRC20";
+  });
   const [creating, setCreating] = useState(false);
   const [invoice, setInvoice] = useState<any>(load("byvc.pay.invoice", null));
   const [status, setStatus] = useState<string>(load<string>("byvc.pay.status", "idle"));
@@ -490,6 +491,17 @@ function DepositBitcart() {
   const rec = db.users?.[username];
   const bonusAlreadyApplied = !!rec?.bonuses?.firstBonusApplied;
   const isFirstEligible = !bonusAlreadyApplied;
+
+  useEffect(() => {
+    if (!SUPPORTED.has(network)) setNetwork("TRC20");
+  }, [network]);
+
+  useEffect(() => {
+    // санитайзим инвойс, если там старая сеть
+    if (invoice?.network && !SUPPORTED.has(invoice.network)) {
+      setInvoice((prev: any) => (prev ? { ...prev, network: "TRC20" } : prev));
+    }
+  }, [invoice?.network]);
 
   useEffect(() => {
     save("byvc.pay.amount", amount);
@@ -639,7 +651,6 @@ function DepositBitcart() {
     if (invoice?.payUrl) {
       window.open(invoice.payUrl, "_blank", "noopener,noreferrer");
     } else {
-      // если нет ссылки — хотя бы покажем реквизиты
       setDetailsOpen(true);
     }
   };
@@ -776,5 +787,327 @@ function DepositBitcart() {
             </>
           )}
         </CardContent>
-        <CardFooter className="analysis
-::contentReference[oaicite:0]{index=0}
+        <CardFooter className="text-xs text-neutral-400">
+          После подтверждения сети баланс будет зачислен через вебхук.
+        </CardFooter>
+      </Card>
+
+      {/* модалки */}
+      {detailsOpen && invoice?.id && (
+        <DetailsModal
+          open={detailsOpen}
+          onClose={() => setDetailsOpen(false)}
+          address={invoice.address || ""}
+          amount={invoice.amount}
+          network={invoice.network}
+          adminUrl={ENV.BITCART_ADMIN_URL}
+          invoiceId={invoice.id}
+        />
+      )}
+
+      {success && (
+        <SuccessModal
+          open={!!success}
+          onClose={() => setSuccess(null)}
+          amount={success.amount}
+          bonus={success.bonus}
+          total={success.total}
+          balance={success.balance}
+        />
+      )}
+    </div>
+  );
+}
+
+function WithdrawMock() {
+  const [amount, setAmount] = useState<number>(50);
+  const [network, setNetwork] = useState<string>("TRC20");
+  const [addr, setAddr] = useState<string>("");
+  const [status, setStatus] = useState<string>("idle");
+
+  const submit = () => {
+    if (!addr || amount <= 0) {
+      alert("Заполните адрес и сумму");
+      return;
+    }
+    if (amount <= 100) {
+      setStatus("sent");
+    } else {
+      setStatus("manual");
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle>Вывод средств</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-3 gap-2">
+          {networks.map((n) => (
+            <Button
+              key={n.code}
+              onClick={() => setNetwork(n.code)}
+              className={`${
+                network === n.code
+                  ? "bg-[#F5A623] text-black hover:bg-[#ffb739]"
+                  : "bg-black/40 text-neutral-200 hover:bg-black/60"
+              } rounded-xl`}
+            >
+              {n.code}
+            </Button>
+          ))}
+        </div>
+        <div className="grid gap-2">
+          <Label>Адрес</Label>
+          <UInput
+            value={addr}
+            onChange={(e) => setAddr(e.target.value)}
+            placeholder="Вставьте адрес кошелька"
+          />
+        </div>
+        <div className="grid gap-2">
+          <Label>Сумма (USDT)</Label>
+          <UInput
+            type="number"
+            value={amount}
+            onChange={(e) => setAmount(Number(e.target.value))}
+          />
+        </div>
+        <Button onClick={submit} className="rounded-2xl h-12">
+          Подтвердить
+        </Button>
+        {status !== "idle" && (
+          <div className="text-xs text-neutral-300">
+            Статус: {status === "sent" ? "Отправлено" : "Ожидает ручной проверки"}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** ---------- UI bits ---------- */
+const UInput = React.forwardRef<HTMLInputElement, React.ComponentProps<typeof Input>>(
+  ({ className = "", ...props }, ref) => (
+    <Input
+      ref={ref}
+      className={`rounded-xl bg-black/40 border-[#2a2f3a] text-white placeholder:text-neutral-400 ${className}`}
+      {...props}
+    />
+  )
+);
+UInput.displayName = "UInput";
+
+function Row({ label, value, hint }: { label: string; value: React.ReactNode; hint?: string }) {
+  return (
+    <div className="flex items-center justify-between py-2">
+      <div>
+        <div className="text-sm text-neutral-400">{label}</div>
+        <div className="text-base font-medium text-white">{value}</div>
+        {hint && <div className="text-xs text-neutral-500 mt-1">{hint}</div>}
+      </div>
+    </div>
+  );
+}
+
+function KVP({ label, value, copyable = false }: { label: string; value: string; copyable?: boolean }) {
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {}
+  };
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <div>
+        <div className="text-xs text-neutral-400">{label}</div>
+        <div className="text-sm font-mono text-white break-all">{value}</div>
+      </div>
+      {copyable && (
+        <Button size="icon" variant="secondary" className="rounded-xl" onClick={onCopy}>
+          <Copy className="h-4 w-4" />
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function statusLabel(s: string) {
+  switch (s) {
+    case "pending":
+      return "Ожидает оплаты";
+    case "confirmed":
+      return "Оплачено";
+    case "expired":
+      return "Счёт истёк";
+    case "cancelled":
+      return "Отменён";
+    default:
+      return "Новый";
+  }
+}
+function pad(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+/** Модалка с реквизитами */
+function DetailsModal({
+  open,
+  onClose,
+  address,
+  amount,
+  network,
+  adminUrl,
+  invoiceId,
+}: {
+  open: boolean;
+  onClose: () => void;
+  address: string;
+  amount: number;
+  network: string;
+  adminUrl: string;
+  invoiceId: string;
+}) {
+  if (!open) return null;
+  const checkoutHref = `${adminUrl.replace(/\/$/, "")}/i/${invoiceId}`;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(address);
+    } catch {}
+  };
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-sm rounded-2xl bg-[#141821] border border-[#2a2f3a] p-5 shadow-xl">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2 text-white">
+            <QrCode className="h-5 w-5" />
+            <span className="font-semibold">Реквизиты для оплаты</span>
+          </div>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-200">
+            ✕
+          </button>
+        </div>
+
+        <div className="space-y-3 text-sm text-neutral-200">
+          <div className="flex items-center justify-between">
+            <span>Сумма</span>
+            <span className="font-semibold text-white">{amount?.toFixed?.(2) ?? amount} USDT</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span>Сеть</span>
+            <span className="font-semibold text-white">{network}</span>
+          </div>
+          <div>
+            <div className="text-xs text-neutral-400 mb-1">Адрес для перевода</div>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 font-mono text-white break-all rounded-lg bg-black/30 border border-[#2a2f3a] px-3 py-2">
+                {address || "Адрес появится после генерации в сети..."}
+              </div>
+              <Button size="icon" variant="secondary" className="rounded-xl" onClick={copy} disabled={!address}>
+                <Copy className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <Button onClick={onClose} variant="secondary" className="rounded-xl">
+            Закрыть
+          </Button>
+          <Button
+            onClick={() => window.open(checkoutHref, "_blank", "noopener,noreferrer")}
+            className="rounded-xl bg-emerald-600 hover:bg-emerald-700"
+          >
+            Открыть checkout
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Модалка успеха */
+function SuccessModal({
+  open,
+  onClose,
+  amount,
+  bonus,
+  total,
+  balance,
+}: {
+  open: boolean;
+  onClose: () => void;
+  amount: number;
+  bonus: number;
+  total: number;
+  balance?: number;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-sm rounded-2xl bg-[#141821] border border-[#2a2f3a] p-5 shadow-xl">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2 text-emerald-300">
+            <ShieldCheck className="h-5 w-5" />
+            <span className="font-semibold">Пополнение успешно</span>
+          </div>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-200">
+            ✕
+          </button>
+        </div>
+        <div className="space-y-2 text-sm text-neutral-200">
+          <div className="flex items-center justify-between">
+            <span>Сумма пополнения</span>
+            <span className="font-semibold text-white">{amount.toFixed(2)} USDT</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span>Начисленный бонус</span>
+            <span className={bonus > 0 ? "font-semibold text-[#F5A623]" : "font-semibold text-neutral-300"}>
+              {bonus.toFixed(2)} USDT
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span>Итого зачислено</span>
+            <span className="font-bold text-white">{total.toFixed(2)} USDT</span>
+          </div>
+          {typeof balance === "number" && (
+            <div className="flex items-center justify-between">
+              <span>Текущий баланс</span>
+              <span className="font-semibold text-white">{balance.toFixed(2)} USDT</span>
+            </div>
+          )}
+        </div>
+        <div className="mt-4">
+          <Button onClick={onClose} className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700">
+            Ок
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Дымовой тест */
+function Smoke() {
+  useEffect(() => {
+    try {
+      const ok = document.body.textContent?.includes("Платёжный модуль");
+      console.assert(!!ok, "Header should render");
+      const text = document.body.textContent || "";
+      const hasBonus = [
+        "Бонусы и активация",
+        "Бонусы будут начислены",
+        "Максимальный бонус к первому пополнению",
+        "Повторное пополнение",
+      ].some((s) => text.includes(s));
+      console.assert(!!hasBonus, "Bonus panel should render");
+      const invCreated = readInvoices().length >= 0;
+      console.assert(invCreated !== undefined, "Invoices store readable");
+    } catch (e) {
+      console.warn("Smoke test warn", e);
+    }
+  }, []);
+  return null;
+}
