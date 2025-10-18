@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-/** Нормализуем базу Bitcart: убираем /admin и гарантируем /api */
+/** Normalize Bitcart API base URL */
 function normalizeApi(url: string) {
   if (!url) return "";
   url = url.replace(/\/admin\/?$/i, "");
@@ -8,78 +8,114 @@ function normalizeApi(url: string) {
   return url.replace(/\/$/, "") + "/api";
 }
 
-/** ENV */
-const RAW_API  = process.env.BITCART_API_URL || "";
-const API      = normalizeApi(RAW_API);
-const RAW_AUTH = process.env.BITCART_TOKEN || "";
-const AUTH     = RAW_AUTH.startsWith("Token ") ? RAW_AUTH : `Token ${RAW_AUTH}`;
+/** ---- ENV ---- */
+const RAW_API = process.env.BITCART_API_URL || "";
+const API = normalizeApi(RAW_API);
 
-function jerr(status: number, message: string) {
+const RAW_AUTH = process.env.BITCART_TOKEN || "";
+const AUTH = RAW_AUTH.startsWith("Token ") ? RAW_AUTH : `Token ${RAW_AUTH}`;
+
+/** Единообразный ответ-ошибка */
+function err(status: number, message: string) {
   return NextResponse.json({ error: message }, { status });
 }
 
-/**
- * GET /api/invoices/:id
- * Проксируем в Bitcart: /invoices/{id} + /invoices/{id}/payments
- * и возвращаем invoice + address (если есть).
- */
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  ctx: { params: { id: string } }
 ) {
   try {
-    if (!API)  return jerr(500, "BITCART_API_URL is not configured");
-    if (!AUTH) return jerr(500, "BITCART_TOKEN is not configured");
+    if (!API) return err(500, "BITCART_API_URL is not configured");
+    if (!AUTH) return err(500, "BITCART_TOKEN is not configured");
 
-    const id = params?.id;
-    if (!id) return jerr(400, "invoice id required");
+    const id = ctx.params?.id;
+    if (!id) return err(400, "invoice id is required");
 
-    // 1) сам инвойс
+    const headers = { Authorization: AUTH, "Content-Type": "application/json" };
+
+    // 1) Базовая инфа по инвойсу
     const invRes = await fetch(`${API}/invoices/${encodeURIComponent(id)}`, {
-      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      headers,
       cache: "no-store",
     });
     if (!invRes.ok) {
       const t = await invRes.text().catch(() => "");
-      return jerr(invRes.status || 400, t || "failed to fetch invoice");
+      return err(invRes.status || 400, t || "failed to fetch invoice");
     }
     const inv: any = await invRes.json().catch(() => ({}));
 
-    // 2) payments по инвойсу — здесь чаще всего есть адрес
-    const payRes = await fetch(
-      `${API}/invoices/${encodeURIComponent(id)}/payments`,
-      { headers: { Authorization: AUTH, "Content-Type": "application/json" }, cache: "no-store" }
-    );
-
-    let payments: any[] = [];
-    if (payRes.ok) {
-      payments = await payRes.json().catch(() => []);
-    }
-
-    // Попробуем вынуть адрес из разных мест
-    const addrFromInvoice =
+    // 2) Попробуем вытащить адрес из разных мест
+    let address: string | null =
       inv?.address ||
       inv?.payment_address ||
       inv?.payment?.address ||
       null;
 
-    const addrFromPayments =
-      payments?.[0]?.address ||
-      payments?.[0]?.payment_address ||
+    // 3) Если адреса нет — запросим payment-methods
+    let payment_methods: any[] | null = null;
+    try {
+      const pmRes = await fetch(
+        `${API}/invoices/${encodeURIComponent(id)}/payment-methods`,
+        { headers, cache: "no-store" }
+      );
+      if (pmRes.ok) {
+        payment_methods = await pmRes.json().catch(() => null);
+        // самый подходящий метод — первый для on-chain
+        const first = Array.isArray(payment_methods) ? payment_methods[0] : null;
+        address =
+          address ||
+          first?.address ||
+          first?.payment_address ||
+          first?.payment?.address ||
+          null;
+      }
+    } catch {
+      /* ignore */
+    }
+
+    // 4) Если нет — попробуем payments
+    let payments: any[] | null = null;
+    try {
+      const payRes = await fetch(
+        `${API}/invoices/${encodeURIComponent(id)}/payments`,
+        { headers, cache: "no-store" }
+      );
+      if (payRes.ok) {
+        payments = await payRes.json().catch(() => null);
+        const p = Array.isArray(payments) ? payments[0] : null;
+        address =
+          address ||
+          p?.address ||
+          p?.payment_address ||
+          p?.payment?.address ||
+          null;
+      }
+    } catch {
+      /* ignore */
+    }
+
+    // удобные поля из создания инвойса
+    const payUrl =
+      inv?.public_url ||
+      inv?.checkout_link ||
+      inv?.links?.checkout ||
+      inv?.pay_url ||
       null;
 
-    const address = addrFromInvoice || addrFromPayments || null;
-
-    // также вернём payments целиком — вдруг пригодится для отладки
     return NextResponse.json({
-      ...inv,
-      address,
-      payments,
+      id: inv?.id ?? id,
+      price: inv?.price ?? null,
+      currency: inv?.currency ?? null,
+      status:
+        inv?.status || inv?.payment_status || inv?.state || inv?.invoice_status,
+      address: address || null,
+      payUrl,
+      expiresAt: inv?.expiration || inv?.expires_at || null,
+      payment_methods: payment_methods || null,
+      payments: payments || null,
+      raw: inv,
     });
   } catch (e: any) {
-    if (process.env.NODE_ENV !== "production") {
-      console.error("[bitcart:get-invoice] exception", e?.message || e);
-    }
-    return jerr(500, e?.message || "error");
+    return err(500, e?.message || "error");
   }
 }

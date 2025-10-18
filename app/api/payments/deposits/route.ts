@@ -17,94 +17,41 @@ const AUTH = RAW_AUTH.startsWith("Token ") ? RAW_AUTH : `Token ${RAW_AUTH}`;
 
 const STORE = process.env.BITCART_STORE_ID || "";
 
-// Можно явно задать базу для вебхуков/редиректа через ENV,
-// иначе возьмём origin из запроса.
+// База для webhook/redirect; если не задана — возьмём из текущего запроса
 const APP_BASE_ENV = (process.env.APP_BASE_URL || "").replace(/\/$/, "");
 
-/** Единообразный ответ-ошибка */
 function err(status: number, message: string) {
   return NextResponse.json({ error: message }, { status });
 }
 
-/** Создать payment для инвойса, чтобы получить адрес */
-async function createPaymentForInvoice(
-  invoiceId: string,
-  opts: { currency: string; network?: string }
-) {
-  const headers = {
-    Authorization: AUTH,
-    "Content-Type": "application/json",
-  };
-
-  // Попробуем самый вероятный эндпоинт
-  // 1) POST /payments { invoice: <id>, currency: "USDT", network?: "TRC20" }
+async function fetchInvoiceOnce(id: string) {
+  const r = await fetch(`${API}/invoices/${id}`, {
+    headers: { Authorization: AUTH, Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!r.ok) return null;
   try {
-    const body1: any = {
-      invoice: invoiceId,
-      currency: opts.currency,
-    };
-    if (opts.network) body1.network = opts.network;
-    const r1 = await fetch(`${API}/payments`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body1),
-      cache: "no-store",
-    });
-    if (r1.ok) {
-      const p = await r1.json().catch(() => ({} as any));
-      return p;
-    }
-  } catch {}
+    return await r.json();
+  } catch {
+    return null;
+  }
+}
 
-  // 2) POST /invoices/{id}/payments { currency, network? }
-  try {
-    const body2: any = {
-      currency: opts.currency,
-    };
-    if (opts.network) body2.network = opts.network;
-    const r2 = await fetch(`${API}/invoices/${invoiceId}/payments`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body2),
-      cache: "no-store",
-    });
-    if (r2.ok) {
-      const p = await r2.json().catch(() => ({} as any));
-      return p;
-    }
-  } catch {}
-
-  // 3) Фолбэк: некоторые инсталляции принимают cryptocurrency вместо currency
-  try {
-    const body3: any = {
-      invoice: invoiceId,
-      cryptocurrency: opts.currency,
-    };
-    if (opts.network) body3.network = opts.network;
-    const r3 = await fetch(`${API}/payments`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body3),
-      cache: "no-store",
-    });
-    if (r3.ok) {
-      const p = await r3.json().catch(() => ({} as any));
-      return p;
-    }
-  } catch {}
-
-  return null;
+function pickAddress(inv: any) {
+  return (
+    inv?.address ||
+    inv?.payment_address ||
+    inv?.payment?.address ||
+    inv?.payments?.[0]?.address ||
+    inv?.payment_methods?.[0]?.address ||
+    inv?.payment_methods?.[0]?.destination ||
+    null
+  );
 }
 
 /**
  * POST /api/payments/deposits
- * Body: {
- *   price: number,
- *   currency?: "USDT",
- *   username?: string,
- *   network?: "TRC20" | "BEP20" | "ERC20",
- *   metadata?: object
- * }
+ * Body: { price:number, currency?:string("USDT"), username?:string, network?: "TRC20"|"BEP20"|"ERC20", metadata?:object }
  */
 export async function POST(req: NextRequest) {
   try {
@@ -132,68 +79,44 @@ export async function POST(req: NextRequest) {
       return err(400, "price must be a positive number");
     }
 
-    const net = (network || "").toString().trim().toUpperCase(); // "TRC20"/"BEP20"/"ERC20"/""
+    const net = (network || "").toString().trim().toUpperCase();
+    const meta = { username: username || null, network: net || null, ...metadata };
 
-    const meta = {
-      username: username || null,
-      network: net || null,
-      ...metadata,
-    };
-
-    // База для вебхуков/редиректа
     const baseUrl = APP_BASE_ENV || new URL(req.url).origin;
 
-    // 1) Создаём инвойс
-    const invoicePayload: Record<string, any> = {
+    const payload: Record<string, any> = {
       store_id: STORE,
       price: amount,
-      currency, // USDT
+      currency,
       metadata: meta,
       notification_url: `${baseUrl}/api/webhooks/bitcart`,
       redirect_url: `${baseUrl}/payments/success`,
     };
 
-    const invRes = await fetch(`${API}/invoices`, {
+    const res = await fetch(`${API}/invoices`, {
       method: "POST",
       headers: {
         Authorization: AUTH,
         "Content-Type": "application/json",
+        Accept: "application/json",
       },
-      body: JSON.stringify(invoicePayload),
+      body: JSON.stringify(payload),
       cache: "no-store",
     });
 
-    if (!invRes.ok) {
-      const text = await invRes.text().catch(() => "");
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
       if (process.env.NODE_ENV !== "production") {
-        console.error("[bitcart:create-invoice] HTTP", invRes.status, text);
+        console.error("[bitcart:create-invoice] HTTP", res.status, text);
         console.log("[bitcart] API:", API, "STORE:", STORE);
       }
-      return err(invRes.status || 400, text || "create invoice failed");
+      return err(res.status || 400, text || "create invoice failed");
     }
 
-    const inv: any = await invRes.json().catch(() => ({}));
+    const inv = (await res.json().catch(() => ({}))) as any;
 
-    // 2) Сразу создаём payment, чтобы получить адрес
-    const payment = await createPaymentForInvoice(inv?.id, {
-      currency,
-      network: net || undefined,
-    });
-
-    // Попробуем собрать адрес и ссылку из payment/инвойса
-    const address =
-      payment?.address ||
-      payment?.payment_address ||
-      payment?.payment?.address ||
-      inv?.address ||
-      inv?.payment_address ||
-      inv?.payment?.address ||
-      null;
-
-    const checkoutUrl =
-      payment?.checkout_url ||
-      payment?.public_url ||
-      payment?.pay_url ||
+    // payUrl из разных возможных полей
+    const payUrl =
       inv?.public_url ||
       inv?.checkout_link ||
       inv?.links?.checkout ||
@@ -202,17 +125,33 @@ export async function POST(req: NextRequest) {
 
     const expiresAt = inv?.expiration || inv?.expires_at || null;
 
+    // Пытаемся сразу добрать адрес (обычно появляется через мгновение после создания)
+    let addr =
+      pickAddress(inv) ||
+      null;
+
+    if (!addr && inv?.id) {
+      const attempts = [150, 350, 700, 1200]; // мс
+      for (const delay of attempts) {
+        await new Promise((r) => setTimeout(r, delay));
+        const fresh = await fetchInvoiceOnce(inv.id);
+        addr = pickAddress(fresh);
+        if (addr) break;
+      }
+    }
+
     return NextResponse.json({
       id: inv?.id,
       price: inv?.price ?? amount,
       currency: inv?.currency ?? currency,
-      network: net || null,
-      address,
-      payUrl: checkoutUrl,
+      payUrl,
       expiresAt,
+      address: addr || null,
+      network: net || null,
       raw: {
-        invoice: { id: inv?.id, status: inv?.status, payment_status: inv?.payment_status, state: inv?.state },
-        payment: payment ? { id: payment?.id, status: payment?.status } : null,
+        status: inv?.status,
+        payment_status: inv?.payment_status,
+        state: inv?.state,
       },
     });
   } catch (e: any) {

@@ -31,12 +31,8 @@ const ENV = {
     "https://pay.bybitpay.pro",
 };
 
-// сети без SOL
-const networks = [
-  { code: "TRC20", fee: 1, eta: "~3–5 мин" },
-  { code: "BEP20", fee: 0.8, eta: "~1–3 мин" },
-  { code: "ERC20", fee: 5, eta: "~5–10 мин" },
-];
+// ——— ОСТАВЛЯЕМ ТОЛЬКО TRC20 ———
+const networks = [{ code: "TRC20", fee: 1, eta: "~3–5 мин" }];
 
 function save(key: string, val: any) {
   try {
@@ -95,12 +91,8 @@ function writeInvoices(arr: any[]) {
 }
 
 function mockAddressFor(net: string) {
-  const m: any = {
-    TRC20: "TQ5E...9XZ1",
-    BEP20: "0x5ab3...F29c",
-    ERC20: "0x91D0...A77e",
-  };
-  return m[net] || "0x000...000";
+  const m: any = { TRC20: "TQ5E...9XZ1" };
+  return m[net] || "Txxxx...xxxx";
 }
 
 const api = {
@@ -482,7 +474,7 @@ function DepositBitcart() {
     balance?: number;
   }>(null);
 
-  // новая модалка с реквизитами
+  // модалка с реквизитами
   const [detailsOpen, setDetailsOpen] = useState(false);
 
   const username = guessUsername();
@@ -498,11 +490,16 @@ function DepositBitcart() {
   useEffect(() => { save("byvc.pay.expiresAt", expiresAt); }, [expiresAt]);
 
   const [now, setNow] = useState(Date.now());
-  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
   const secs = Math.max(0, Math.floor((expiresAt - now) / 1000));
-  useEffect(() => { if (expiresAt && secs === 0 && status === "pending") setStatus("expired"); }, [secs, expiresAt, status]);
+  useEffect(() => {
+    if (expiresAt && secs === 0 && status === "pending") setStatus("expired");
+  }, [secs, expiresAt, status]);
 
-  // поллинг статуса
+  // поллинг статуса + попытка вытащить адрес
   useEffect(() => {
     if (!invoice?.id || status !== "pending") return;
     let stop = false;
@@ -512,11 +509,12 @@ function DepositBitcart() {
         if (!res.ok) return;
         const data = await res.json();
 
-        // адрес, если появился
         const addr =
           data?.address ||
           data?.addresses?.[0] ||
           data?.payments?.[0]?.address ||
+          data?.payment_methods?.[0]?.address ||
+          data?.payment_methods?.[0]?.destination ||
           null;
         if (addr && !invoice?.address) {
           setInvoice((prev: any) => ({ ...prev, address: addr }));
@@ -606,6 +604,8 @@ function DepositBitcart() {
             d?.address ||
             d?.addresses?.[0] ||
             d?.payments?.[0]?.address ||
+            d?.payment_methods?.[0]?.address ||
+            d?.payment_methods?.[0]?.destination ||
             null;
           if (addr) setInvoice((prev: any) => ({ ...prev, address: addr }));
         }
@@ -615,18 +615,13 @@ function DepositBitcart() {
   };
 
   // открыть checkout (проверка оплаты)
-const openCheckout = () => {
-  if (!invoice?.id) return;
-  const admin = (ENV.BITCART_ADMIN_URL || "").replace(/\/$/, "");
-  const url = invoice?.payUrl || (admin ? `${admin}/i/${invoice.id}` : "");
-  if (url) {
-    window.open(url, "_blank", "noopener,noreferrer");
-  } else {
-    // на крайний случай хоть реквизиты покажем
-    setDetailsOpen(true);
-  }
-};
-
+  const openCheckout = () => {
+    const admin = (ENV.BITCART_ADMIN_URL || "").replace(/\/$/, "");
+    const fallback = admin && invoice?.id ? `${admin}/i/${invoice.id}` : "";
+    const url = invoice?.payUrl || fallback;
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+    else alert("Ссылка checkout ещё не готова. Попробуйте позже.");
+  };
 
   const markPaid = async () => {
     if (!invoice?.id) return;
@@ -665,7 +660,8 @@ const openCheckout = () => {
         <CardContent className="space-y-3">
           {!invoice && (
             <>
-              <div className="grid grid-cols-3 gap-2">
+              {/* одна колонка (только TRC20) */}
+              <div className="grid grid-cols-1 gap-2">
                 {networks.map((n) => (
                   <Button
                     key={n.code}
@@ -683,9 +679,9 @@ const openCheckout = () => {
               <Row
                 label="Сеть"
                 value={network}
-                hint={`Комиссия ~${
-                  networks.find((n) => n.code === network)?.fee
-                } USDT • ${networks.find((n) => n.code === network)?.eta}`}
+                hint={`Комиссия ~${networks.find((n) => n.code === network)?.fee} USDT • ${
+                  networks.find((n) => n.code === network)?.eta
+                }`}
               />
               <div className="grid gap-2">
                 <Label>Сумма (USDT)</Label>
@@ -765,7 +761,8 @@ const openCheckout = () => {
         </CardFooter>
       </Card>
 
-      {detailsOpen && invoice && (
+      {/* Модалка с реквизитами */}
+      {detailsOpen && invoice?.id && (
         <DetailsModal
           open={detailsOpen}
           onClose={() => setDetailsOpen(false)}
@@ -773,6 +770,7 @@ const openCheckout = () => {
         />
       )}
 
+      {/* Модалка успешного пополнения */}
       {success && (
         <SuccessModal
           open={!!success}
@@ -811,7 +809,8 @@ function WithdrawMock() {
         <CardTitle>Вывод средств</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="grid grid-cols-3 gap-2">
+        {/* одна колонка (только TRC20) */}
+        <div className="grid grid-cols-1 gap-2">
           {networks.map((n) => (
             <Button
               key={n.code}
@@ -831,7 +830,7 @@ function WithdrawMock() {
           <UInput
             value={addr}
             onChange={(e) => setAddr(e.target.value)}
-            placeholder="Вставьте адрес кошелька"
+            placeholder="Вставьте адрес кошелька TRC20"
           />
         </div>
         <div className="grid gap-2">
@@ -982,45 +981,71 @@ function DetailsModal({
 }: {
   open: boolean;
   onClose: () => void;
-  invoice: { id: string; amount: number; network?: string; address?: string | null; payUrl?: string | null };
+  invoice: { id: string; amount: number; network: string; address?: string | null; payUrl?: string | null };
 }) {
   if (!open) return null;
-  const { amount, network, address, payUrl } = invoice;
-  const scanValue = address || "";
+  const admin = (ENV.BITCART_ADMIN_URL || "").replace(/\/$/, "");
+  const fallback = admin && invoice?.id ? `${admin}/i/${invoice.id}` : "";
+  const checkoutUrl = invoice?.payUrl || fallback;
+
   return (
     <div className="fixed inset-0 z-50 grid place-items-center">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative w-full max-w-sm rounded-2xl bg-[#141821] border border-[#2a2f3a] p-5 shadow-xl">
         <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2 text-[#F5A623]">
+          <div className="flex items-center gap-2 text-white">
             <QrCode className="h-5 w-5" />
             <span className="font-semibold">Реквизиты оплаты</span>
           </div>
           <button onClick={onClose} className="text-neutral-400 hover:text-neutral-200">✕</button>
         </div>
 
-        <div className="rounded-xl bg-black/40 border border-[#2a2f3a] p-3 mb-3 space-y-2">
-          <KVP label="Сумма" value={`${amount} USDT`} />
-          <KVP label="Сеть" value={network || "—"} />
-          <KVP label="Адрес" value={address || "ожидаем адрес от Bitcart..."} copyable={!!address} />
+        <div className="space-y-3 text-sm text-neutral-200">
+          <div className="flex items-center justify-between">
+            <span>Сумма</span>
+            <span className="font-semibold text-white">{invoice.amount} USDT</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span>Сеть</span>
+            <span className="font-semibold text-white">{invoice.network}</span>
+          </div>
+
+          <div className="rounded-xl bg-black/40 border border-[#2a2f3a] p-3">
+            <div className="text-xs text-neutral-400 mb-1">Адрес для пополнения</div>
+            <div className="flex items-center justify-between gap-2">
+              <div className="font-mono text-white break-all">
+                {invoice.address || "Адрес генерируется... откройте позже"}
+              </div>
+              {invoice.address && (
+                <Button
+                  size="icon"
+                  variant="secondary"
+                  className="rounded-xl"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(invoice.address!);
+                    } catch {}
+                  }}
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* Заглушка под QR — адрес появится из поллинга */}
-        <div className="rounded-xl bg-[#1b2029] w-full h-44 grid place-items-center mb-3">
-          <QrCode className="h-10 w-10 text-neutral-300" />
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
+        <div className="mt-4 flex gap-2">
           <Button
             onClick={() => {
-              if (payUrl) window.open(payUrl, "_blank", "noopener,noreferrer");
+              // fallback на /i/:id если payUrl ещё не готов
+              if (checkoutUrl) window.open(checkoutUrl, "_blank", "noopener,noreferrer");
               else alert("Ссылка checkout ещё не готова. Попробуйте позже.");
             }}
-            className="rounded-xl bg-emerald-600 hover:bg-emerald-700"
+            className="flex-1 rounded-xl bg-emerald-600 hover:bg-emerald-700"
           >
             Перейти к проверке оплаты
           </Button>
-          <Button variant="secondary" className="rounded-xl" onClick={onClose}>
+          <Button onClick={onClose} variant="secondary" className="rounded-xl">
             Закрыть
           </Button>
         </div>
@@ -1029,7 +1054,9 @@ function DetailsModal({
   );
 }
 
-function pad(n: number) { return String(n).padStart(2, "0"); }
+function pad(n: number) {
+  return String(n).padStart(2, "0");
+}
 
 function Smoke() {
   useEffect(() => {
