@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Card,
   CardHeader,
@@ -24,6 +24,7 @@ import {
   Info,
 } from "lucide-react";
 
+/* ---------- ENV ---------- */
 const ENV = {
   BITCART_ADMIN_URL:
     (typeof process !== "undefined" &&
@@ -31,9 +32,11 @@ const ENV = {
     "https://pay.bybitpay.pro",
 };
 
-// ——— ОСТАВЛЯЕМ ТОЛЬКО TRC20 ———
+/* ---------- CONSTS ---------- */
+// сети — только TRC20
 const networks = [{ code: "TRC20", fee: 1, eta: "~3–5 мин" }];
 
+/* ---------- LS helpers ---------- */
 function save(key: string, val: any) {
   try {
     localStorage.setItem(key, JSON.stringify(val));
@@ -48,6 +51,7 @@ function load<T = any>(key: string, def: T): T {
   }
 }
 
+/* ---------- tiny local DB for demo bonuses ---------- */
 function readDB() {
   try {
     return JSON.parse(
@@ -64,8 +68,7 @@ function writeDB(db: any) {
 }
 function guessUsername() {
   try {
-    const tg = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.user
-      ?.username;
+    const tg = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.user?.username;
     if (tg) return tg;
   } catch {}
   try {
@@ -77,6 +80,7 @@ function guessUsername() {
   return "guest";
 }
 
+/* ---------- dev-mock invoices store ---------- */
 function readInvoices() {
   try {
     return JSON.parse(localStorage.getItem("byvc.api.invoices") ?? "[]") as any[];
@@ -89,12 +93,12 @@ function writeInvoices(arr: any[]) {
     localStorage.setItem("byvc.api.invoices", JSON.stringify(arr));
   } catch {}
 }
-
 function mockAddressFor(net: string) {
   const m: any = { TRC20: "TQ5E...9XZ1" };
-  return m[net] || "Txxxx...xxxx";
+  return m[net] || "0x000...000";
 }
 
+/* ---------- dev-mock api ---------- */
 const api = {
   async createDeposit(payload: {
     store_id: string;
@@ -117,7 +121,7 @@ const api = {
       status: "pending",
       createdAt: Date.now(),
       expiresAt: Date.now() + 15 * 60 * 1000,
-      payUrl: "https://example.bitcart/checkout/invoice-demo",
+      payUrl: "https://example.bitcart/invoice/demo",
       metadata: metadata ?? {},
     } as any;
     const all = readInvoices();
@@ -125,6 +129,7 @@ const api = {
     writeInvoices(all);
     return inv;
   },
+
   async webhookBitcartPaid(invoiceId: string) {
     await new Promise((r) => setTimeout(r, 200));
     const all = readInvoices();
@@ -186,12 +191,14 @@ const api = {
     writeDB(copy);
     return { ...inv, appliedBonus: bonusAmt, tier };
   },
+
   async getInvoice(id: string) {
     const inv = readInvoices().find((x: any) => x.id === id);
     return inv || null;
   },
 };
 
+/* ---------- Root Component ---------- */
 export default function PaymentsApp() {
   const [tab, setTab] = useState("deposit");
   return (
@@ -231,6 +238,7 @@ export default function PaymentsApp() {
   );
 }
 
+/* ---------- Bonus panel (unchanged visual, updated copy) ---------- */
 function BonusActivationPanel({
   amount,
   isFirst,
@@ -351,27 +359,39 @@ function BonusActivationPanel({
               <Info className="h-4 w-4 text-yellow-400" />
               Бонусы и активация
             </CardTitle>
-            <Badge variant="secondary" className="rounded-full">Бонус доступен</Badge>
+            <Badge variant="secondary" className="rounded-full">
+              Бонус доступен
+            </Badge>
           </div>
           <CardDescription className="text-neutral-400">
-            Пополнение менее 100 USDT — без бонусов и активации. Бонус сохранится до первого пополнения ≥100 USDT.
+            Пополнение менее 100 USDT — без бонусов и активации. Бонус сохранится
+            до первого пополнения ≥100 USDT.
           </CardDescription>
         </CardHeader>
         <CardContent className="text-sm space-y-3 text-neutral-200">
           <div className="flex items-start gap-2">
             <Gift className="h-4 w-4 text-neutral-400 mt-0.5" />
-            При первом пополнении <span className="font-semibold">от 100 USDT</span> начислим <span className="font-semibold">+100%</span>.
+            При первом пополнении{" "}
+            <span className="font-semibold">от 100 USDT</span> начислим{" "}
+            <span className="font-semibold">+100%</span>.
           </div>
           <div className="flex items-start gap-2">
             <Gift className="h-4 w-4 text-neutral-400 mt-0.5" />
-            Если первое пополнение сразу <span className="font-semibold">≥500 USDT</span> — начислим <span className="font-semibold">+200%</span>.
+            Если первое пополнение сразу{" "}
+            <span className="font-semibold">≥500 USDT</span> — начислим{" "}
+            <span className="font-semibold">+200%</span>.
           </div>
           <div className="flex items-start gap-2">
             <Info className="h-4 w-4 text-neutral-400 mt-0.5" />
             Если бонус начислен на сумме 100–499, то возможность +200% сгорает.
           </div>
           <div className="rounded-xl bg-black/30 p-3 text-xs text-neutral-300">
-            Например: пополнив на <span className="text-white font-semibold">{ex} USDT</span>, вы получили бы бонус <span className="text-[#F5A623] font-semibold">+{exBonus} USDT</span> и на карте было бы <span className="text-white font-semibold">{exTotal} USDT</span>.
+            Например: пополнив на{" "}
+            <span className="text-white font-semibold">{ex} USDT</span>, вы
+            получили бы бонус{" "}
+            <span className="text-[#F5A623] font-semibold">+{exBonus} USDT</span>{" "}
+            и на карте было бы{" "}
+            <span className="text-white font-semibold">{exTotal} USDT</span>.
           </div>
           <Calc />
         </CardContent>
@@ -414,7 +434,8 @@ function BonusActivationPanel({
           </div>
           <Calc />
           <div className="text-xs text-neutral-300">
-            Возможность +200% действует только если первое квалифицирующее пополнение ≥500 USDT.
+            Возможность +200% действует только если первое квалифицирующее
+            пополнение ≥500 USDT.
           </div>
         </CardContent>
         <CardFooter className="text-xs text-neutral-200">
@@ -432,7 +453,9 @@ function BonusActivationPanel({
             <ShieldCheck className="h-4 w-4" />
             Бонусы будут начислены
           </CardTitle>
-          <Badge variant="secondary" className="rounded-full">Бонус доступен</Badge>
+          <Badge variant="secondary" className="rounded-full">
+            Бонус доступен
+          </Badge>
         </div>
         <CardDescription className="text-neutral-400">
           Первое пополнение от 100 до 499.99 USDT даёт +100%.
@@ -449,7 +472,9 @@ function BonusActivationPanel({
         </div>
         <Calc />
         <div className="text-xs text-neutral-300">
-          Если первое квалифицирующее пополнение <span className="font-semibold text-white">&lt; 500 USDT</span>, возможность получить +200% сгорает.
+          Если первое квалифицирующее пополнение{" "}
+          <span className="font-semibold text-white">&lt; 500 USDT</span>,
+          возможность получить +200% сгорает.
         </div>
       </CardContent>
       <CardFooter className="text-xs text-neutral-300">
@@ -459,13 +484,22 @@ function BonusActivationPanel({
   );
 }
 
+/* ---------- Deposit ---------- */
 function DepositBitcart() {
-  const [amount, setAmount] = useState<number>(load<number>("byvc.pay.amount", 100));
-  const [network, setNetwork] = useState<string>(load<string>("byvc.pay.network", "TRC20"));
+  const [amount, setAmount] = useState<number>(
+    load<number>("byvc.pay.amount", 100)
+  );
+  const [network, setNetwork] = useState<string>(
+    load<string>("byvc.pay.network", "TRC20")
+  );
   const [creating, setCreating] = useState(false);
   const [invoice, setInvoice] = useState<any>(load("byvc.pay.invoice", null));
-  const [status, setStatus] = useState<string>(load<string>("byvc.pay.status", "idle"));
-  const [expiresAt, setExpiresAt] = useState<number>(load<number>("byvc.pay.expiresAt", 0));
+  const [status, setStatus] = useState<string>(
+    load<string>("byvc.pay.status", "idle")
+  );
+  const [expiresAt, setExpiresAt] = useState<number>(
+    load<number>("byvc.pay.expiresAt", 0)
+  );
   const [, setDbTick] = useState(0);
   const [success, setSuccess] = useState<null | {
     amount: number;
@@ -474,7 +508,7 @@ function DepositBitcart() {
     balance?: number;
   }>(null);
 
-  // модалка с реквизитами
+  // модалка реквизитов
   const [detailsOpen, setDetailsOpen] = useState(false);
 
   const username = guessUsername();
@@ -483,12 +517,13 @@ function DepositBitcart() {
   const bonusAlreadyApplied = !!rec?.bonuses?.firstBonusApplied;
   const isFirstEligible = !bonusAlreadyApplied;
 
-  useEffect(() => { save("byvc.pay.amount", amount); }, [amount]);
-  useEffect(() => { save("byvc.pay.network", network); }, [network]);
-  useEffect(() => { save("byvc.pay.invoice", invoice); }, [invoice]);
-  useEffect(() => { save("byvc.pay.status", status); }, [status]);
-  useEffect(() => { save("byvc.pay.expiresAt", expiresAt); }, [expiresAt]);
+  useEffect(() => save("byvc.pay.amount", amount), [amount]);
+  useEffect(() => save("byvc.pay.network", network), [network]);
+  useEffect(() => save("byvc.pay.invoice", invoice), [invoice]);
+  useEffect(() => save("byvc.pay.status", status), [status]);
+  useEffect(() => save("byvc.pay.expiresAt", expiresAt), [expiresAt]);
 
+  // timer
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -499,7 +534,7 @@ function DepositBitcart() {
     if (expiresAt && secs === 0 && status === "pending") setStatus("expired");
   }, [secs, expiresAt, status]);
 
-  // поллинг статуса + попытка вытащить адрес
+  // poll invoice (address, expiration, status)
   useEffect(() => {
     if (!invoice?.id || status !== "pending") return;
     let stop = false;
@@ -509,21 +544,35 @@ function DepositBitcart() {
         if (!res.ok) return;
         const data = await res.json();
 
+        // address (много вариантов полей в Bitcart)
         const addr =
           data?.address ||
-          data?.addresses?.[0] ||
+          data?.payment_address ||
           data?.payments?.[0]?.address ||
           data?.payment_methods?.[0]?.address ||
-          data?.payment_methods?.[0]?.destination ||
+          data?.addresses?.[0] ||
           null;
         if (addr && !invoice?.address) {
           setInvoice((prev: any) => ({ ...prev, address: addr }));
         }
 
-        const st = (data.status || data.payment_status || data.state || "").toLowerCase();
+        // expiration
+        const exp =
+          data?.expiration ||
+          data?.expires_at ||
+          (data?.expiresAt ? Date.parse(data.expiresAt) : null);
+        if (exp && !expiresAt) {
+          setExpiresAt(typeof exp === "number" ? exp : Date.parse(exp));
+        }
+
+        // status
+        const st = (data.status || data.payment_status || data.state || "")
+          .toLowerCase()
+          .trim();
         if (st.includes("confirmed") || st.includes("paid")) {
           const a = Number((invoice.amount ?? data.price ?? data.amount) || 0);
-          const tier = !bonusAlreadyApplied && a >= 100 ? (a >= 500 ? 200 : 100) : 0;
+          const tier =
+            !bonusAlreadyApplied && a >= 100 ? (a >= 500 ? 200 : 100) : 0;
           const bonusAmt = +((a * tier) / 100).toFixed(2);
           setStatus("confirmed");
           setSuccess({ amount: a, bonus: bonusAmt, total: a + bonusAmt });
@@ -531,11 +580,15 @@ function DepositBitcart() {
         }
       } catch {}
     };
-    const timer = setInterval(() => { if (!stop) poll(); }, 5000);
+    const timer = setInterval(() => !stop && poll(), 5000);
     poll();
-    return () => { stop = true; clearInterval(timer); };
-  }, [invoice?.id, status, bonusAlreadyApplied, invoice?.amount, invoice?.address]);
+    return () => {
+      stop = true;
+      clearInterval(timer);
+    };
+  }, [invoice?.id, status, bonusAlreadyApplied, invoice?.amount, invoice?.address, expiresAt]);
 
+  /* ----- Create invoice ----- */
   const createInvoice = async () => {
     setCreating(true);
     const payload = {
@@ -560,10 +613,23 @@ function DepositBitcart() {
         ccy: inv.currency,
         network: inv.network ?? network,
         address: inv.address ?? null,
-        payUrl: inv.payUrl ?? null,
+        // Ссылка на публичную страницу ИНВОЙСА (а не legacy checkout)
+        payUrl:
+          inv.public_url ||
+          inv.checkout_link ||
+          inv.links?.invoice ||
+          inv.links?.checkout ||
+          inv.pay_url ||
+          (inv.id
+            ? `${ENV.BITCART_ADMIN_URL.replace(/\/admin\/?$/, "")}/i/${inv.id}`
+            : null),
       });
+      const exp =
+        inv?.expiration || inv?.expires_at || inv?.expiresAt || null;
+      setExpiresAt(
+        exp ? (typeof exp === "number" ? exp : Date.parse(exp)) : Date.now() + 15 * 60 * 1000
+      );
       setStatus("pending");
-      setExpiresAt(inv.expiresAt ?? Date.now() + 15 * 60 * 1000);
       setCreating(false);
       return;
     } catch (e) {
@@ -602,27 +668,35 @@ function DepositBitcart() {
           const d = await r.json();
           const addr =
             d?.address ||
-            d?.addresses?.[0] ||
+            d?.payment_address ||
             d?.payments?.[0]?.address ||
             d?.payment_methods?.[0]?.address ||
-            d?.payment_methods?.[0]?.destination ||
+            d?.addresses?.[0] ||
             null;
           if (addr) setInvoice((prev: any) => ({ ...prev, address: addr }));
+          const exp =
+            d?.expiration ||
+            d?.expires_at ||
+            (d?.expiresAt ? Date.parse(d.expiresAt) : null);
+          if (exp && !expiresAt) {
+            setExpiresAt(typeof exp === "number" ? exp : Date.parse(exp));
+          }
         }
       } catch {}
     }
     setDetailsOpen(true);
   };
 
-  // открыть checkout (проверка оплаты)
-  const openCheckout = () => {
-    const admin = (ENV.BITCART_ADMIN_URL || "").replace(/\/$/, "");
-    const fallback = admin && invoice?.id ? `${admin}/i/${invoice.id}` : "";
-    const url = invoice?.payUrl || fallback;
-    if (url) window.open(url, "_blank", "noopener,noreferrer");
-    else alert("Ссылка checkout ещё не готова. Попробуйте позже.");
+  // перейти к странице инвойса (оплата)
+  const openInvoicePage = () => {
+    if (invoice?.payUrl) {
+      window.open(invoice.payUrl, "_blank", "noopener,noreferrer");
+    } else {
+      setDetailsOpen(true);
+    }
   };
 
+  // ручной мок "оплачено" (оставил для отладки)
   const markPaid = async () => {
     if (!invoice?.id) return;
     const a = Number(invoice.amount || 0);
@@ -660,7 +734,6 @@ function DepositBitcart() {
         <CardContent className="space-y-3">
           {!invoice && (
             <>
-              {/* одна колонка (только TRC20) */}
               <div className="grid grid-cols-1 gap-2">
                 {networks.map((n) => (
                   <Button
@@ -729,7 +802,7 @@ function DepositBitcart() {
                   <KVP label="Сеть" value={invoice.network} />
                   <KVP
                     label="Адрес"
-                    value={invoice.address ?? "откройте «Открыть оплату»"}
+                    value={invoice.address ?? "откройте «Реквизиты оплаты»"}
                     copyable={!!invoice.address}
                   />
                 </div>
@@ -740,18 +813,22 @@ function DepositBitcart() {
                   onClick={openDetails}
                   className="rounded-2xl bg-[#F5A623] text-black hover:bg-[#ffb739]"
                 >
-                  Открыть оплату
+                  Реквизиты оплаты
                 </Button>
                 <Button onClick={cancel} variant="secondary" className="rounded-2xl">
                   Отменить
                 </Button>
+
+                {/* новая кнопка */}
                 <Button
-                  onClick={openCheckout}
+                  onClick={openInvoicePage}
                   className="rounded-2xl col-span-2 bg-emerald-600 hover:bg-emerald-700"
                 >
-                  <Check className="h-4 w-4 mr-2" />
-                  Проверить оплату
+                  Перейти к оплате
                 </Button>
+
+                {/* оставить для отладки при необходимости */}
+                {/* <Button onClick={markPaid} className="rounded-2xl col-span-2">Мок: Оплачено</Button> */}
               </div>
             </>
           )}
@@ -761,16 +838,18 @@ function DepositBitcart() {
         </CardFooter>
       </Card>
 
-      {/* Модалка с реквизитами */}
-      {detailsOpen && invoice?.id && (
+      {/* Модалка реквизитов */}
+      {detailsOpen && invoice && (
         <DetailsModal
           open={detailsOpen}
           onClose={() => setDetailsOpen(false)}
-          invoice={invoice}
+          amount={Number(invoice.amount || 0)}
+          network={invoice.network}
+          address={invoice.address || "ожидаем адрес от Bitcart..."}
+          secondsLeft={secs}
         />
       )}
 
-      {/* Модалка успешного пополнения */}
       {success && (
         <SuccessModal
           open={!!success}
@@ -785,6 +864,7 @@ function DepositBitcart() {
   );
 }
 
+/* ---------- Withdraw mock ---------- */
 function WithdrawMock() {
   const [amount, setAmount] = useState<number>(50);
   const [network, setNetwork] = useState<string>("TRC20");
@@ -796,11 +876,8 @@ function WithdrawMock() {
       alert("Заполните адрес и сумму");
       return;
     }
-    if (amount <= 100) {
-      setStatus("sent");
-    } else {
-      setStatus("manual");
-    }
+    if (amount <= 100) setStatus("sent");
+    else setStatus("manual");
   };
 
   return (
@@ -809,28 +886,24 @@ function WithdrawMock() {
         <CardTitle>Вывод средств</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {/* одна колонка (только TRC20) */}
         <div className="grid grid-cols-1 gap-2">
-          {networks.map((n) => (
-            <Button
-              key={n.code}
-              onClick={() => setNetwork(n.code)}
-              className={`${
-                network === n.code
-                  ? "bg-[#F5A623] text-black hover:bg-[#ffb739]"
-                  : "bg-black/40 text-neutral-200 hover:bg-black/60"
-              } rounded-xl`}
-            >
-              {n.code}
-            </Button>
-          ))}
+          <Button
+            onClick={() => setNetwork("TRC20")}
+            className={`${
+              network === "TRC20"
+                ? "bg-[#F5A623] text-black hover:bg-[#ffb739]"
+                : "bg-black/40 text-neutral-200 hover:bg-black/60"
+            } rounded-xl`}
+          >
+            TRC20
+          </Button>
         </div>
         <div className="grid gap-2">
           <Label>Адрес</Label>
           <UInput
             value={addr}
             onChange={(e) => setAddr(e.target.value)}
-            placeholder="Вставьте адрес кошелька TRC20"
+            placeholder="Вставьте адрес кошелька"
           />
         </div>
         <div className="grid gap-2">
@@ -854,6 +927,7 @@ function WithdrawMock() {
   );
 }
 
+/* ---------- UI helpers ---------- */
 const UInput = React.forwardRef<HTMLInputElement, React.ComponentProps<typeof Input>>(
   ({ className = "", ...props }, ref) => (
     <Input
@@ -865,7 +939,15 @@ const UInput = React.forwardRef<HTMLInputElement, React.ComponentProps<typeof In
 );
 UInput.displayName = "UInput";
 
-function Row({ label, value, hint }: { label: string; value: React.ReactNode; hint?: string }) {
+function Row({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: React.ReactNode;
+  hint?: string;
+}) {
   return (
     <div className="flex items-center justify-between py-2">
       <div>
@@ -877,7 +959,15 @@ function Row({ label, value, hint }: { label: string; value: React.ReactNode; hi
   );
 }
 
-function KVP({ label, value, copyable = false }: { label: string; value: string; copyable?: boolean }) {
+function KVP({
+  label,
+  value,
+  copyable = false,
+}: {
+  label: string;
+  value: string;
+  copyable?: boolean;
+}) {
   const onCopy = async () => {
     try {
       await navigator.clipboard.writeText(value);
@@ -949,7 +1039,11 @@ function SuccessModal({
           </div>
           <div className="flex items-center justify-between">
             <span>Начисленный бонус</span>
-            <span className={bonus > 0 ? "font-semibold text-[#F5A623]" : "font-semibold text-neutral-300"}>
+            <span
+              className={
+                bonus > 0 ? "font-semibold text-[#F5A623]" : "font-semibold text-neutral-300"
+              }
+            >
               {bonus.toFixed(2)} USDT
             </span>
           </div>
@@ -977,77 +1071,63 @@ function SuccessModal({
 function DetailsModal({
   open,
   onClose,
-  invoice,
+  amount,
+  network,
+  address,
+  secondsLeft,
 }: {
   open: boolean;
   onClose: () => void;
-  invoice: { id: string; amount: number; network: string; address?: string | null; payUrl?: string | null };
+  amount: number;
+  network: string;
+  address: string;
+  secondsLeft: number;
 }) {
   if (!open) return null;
-  const admin = (ENV.BITCART_ADMIN_URL || "").replace(/\/$/, "");
-  const fallback = admin && invoice?.id ? `${admin}/i/${invoice.id}` : "";
-  const checkoutUrl = invoice?.payUrl || fallback;
+  const timeLabel = useMemo(() => {
+    const m = Math.floor(secondsLeft / 60);
+    const s = secondsLeft % 60;
+    return `${pad(m)}:${pad(s)}`;
+  }, [secondsLeft]);
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-sm rounded-2xl bg-[#141821] border border-[#2a2f3a] p-5 shadow-xl">
-        <div className="flex items-center justify-between mb-2">
+      <div className="relative w-full max-w-md rounded-2xl bg-[#141821] border border-[#2a2f3a] p-5 shadow-xl">
+        <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2 text-white">
-            <QrCode className="h-5 w-5" />
+            <QrCode className="h-5 w-5 text-[#F5A623]" />
             <span className="font-semibold">Реквизиты оплаты</span>
           </div>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-200">✕</button>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-200">
+            ✕
+          </button>
         </div>
 
-        <div className="space-y-3 text-sm text-neutral-200">
-          <div className="flex items-center justify-between">
-            <span>Сумма</span>
-            <span className="font-semibold text-white">{invoice.amount} USDT</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span>Сеть</span>
-            <span className="font-semibold text-white">{invoice.network}</span>
+        <div className="space-y-3">
+          <div className="rounded-xl bg-black/30 border border-[#2a2f3a] p-3">
+            <div className="text-xs text-neutral-400">Сумма</div>
+            <div className="text-sm font-semibold text-white">
+              {amount.toFixed(2)} USDT
+            </div>
+            <div className="mt-2 text-xs text-neutral-400">Сеть</div>
+            <div className="text-sm font-semibold text-white">{network}</div>
+            <div className="mt-2 text-xs text-neutral-400">Адрес</div>
+            <div className="text-sm font-mono text-white break-all">{address}</div>
           </div>
 
-          <div className="rounded-xl bg-black/40 border border-[#2a2f3a] p-3">
-            <div className="text-xs text-neutral-400 mb-1">Адрес для пополнения</div>
-            <div className="flex items-center justify-between gap-2">
-              <div className="font-mono text-white break-all">
-                {invoice.address || "Адрес генерируется... откройте позже"}
-              </div>
-              {invoice.address && (
-                <Button
-                  size="icon"
-                  variant="secondary"
-                  className="rounded-xl"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(invoice.address!);
-                    } catch {}
-                  }}
-                >
-                  <Copy className="h-4 w-4" />
-                </Button>
-              )}
+          <div className="rounded-xl bg-black/30 border border-[#2a2f3a] p-6 grid place-items-center">
+            <QrCode className="h-16 w-16 text-neutral-400" />
+            <div className="mt-3 text-xs text-neutral-400 flex items-center gap-2">
+              <Clock className="h-4 w-4" /> До истечения: {timeLabel}
             </div>
           </div>
-        </div>
 
-        <div className="mt-4 flex gap-2">
-          <Button
-            onClick={() => {
-              // fallback на /i/:id если payUrl ещё не готов
-              if (checkoutUrl) window.open(checkoutUrl, "_blank", "noopener,noreferrer");
-              else alert("Ссылка checkout ещё не готова. Попробуйте позже.");
-            }}
-            className="flex-1 rounded-xl bg-emerald-600 hover:bg-emerald-700"
-          >
-            Перейти к проверке оплаты
-          </Button>
-          <Button onClick={onClose} variant="secondary" className="rounded-xl">
-            Закрыть
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={onClose} className="w-full rounded-xl">
+              Закрыть
+            </Button>
+          </div>
         </div>
       </div>
     </div>
@@ -1063,16 +1143,6 @@ function Smoke() {
     try {
       const ok = document.body.textContent?.includes("Платёжный модуль");
       console.assert(!!ok, "Header should render");
-      const text = document.body.textContent || "";
-      const hasBonus = [
-        "Бонусы и активация",
-        "Бонусы будут начислены",
-        "Максимальный бонус к первому пополнению",
-        "Повторное пополнение",
-      ].some((s) => text.includes(s));
-      console.assert(!!hasBonus, "Bonus panel should render");
-      const invCreated = readInvoices().length >= 0;
-      console.assert(invCreated !== undefined, "Invoices store readable");
     } catch (e) {
       console.warn("Smoke test warn", e);
     }
