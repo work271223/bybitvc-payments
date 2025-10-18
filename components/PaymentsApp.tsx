@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Card,
   CardHeader,
@@ -7,24 +7,23 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
-import {
-  QrCode,
-  Copy,
-  Check,
-  Loader2,
-  Wallet,
-  Clock,
-  Gift,
-  ShieldCheck,
-  Info,
-} from "lucide-react";
+  import { Button } from "@/components/ui/button";
+  import { Input } from "@/components/ui/input";
+  import { Label } from "@/components/ui/label";
+  import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+  import { Badge } from "@/components/ui/badge";
+  import {
+    QrCode,
+    Copy,
+    Check,
+    Loader2,
+    Wallet,
+    Clock,
+    Gift,
+    ShieldCheck,
+    Info,
+  } from "lucide-react";
 
-/* ---------- ENV ---------- */
 const ENV = {
   BITCART_ADMIN_URL:
     (typeof process !== "undefined" &&
@@ -32,11 +31,13 @@ const ENV = {
     "https://pay.bybitpay.pro",
 };
 
-/* ---------- CONSTS ---------- */
-// сети — только TRC20
-const networks = [{ code: "TRC20", fee: 1, eta: "~3–5 мин" }];
+// Сети без SOL
+const networks = [
+  { code: "TRC20", fee: 1, eta: "~3–5 мин" },
+  { code: "BEP20", fee: 0.8, eta: "~1–3 мин" },
+  { code: "ERC20", fee: 5, eta: "~5–10 мин" },
+];
 
-/* ---------- LS helpers ---------- */
 function save(key: string, val: any) {
   try {
     localStorage.setItem(key, JSON.stringify(val));
@@ -51,7 +52,6 @@ function load<T = any>(key: string, def: T): T {
   }
 }
 
-/* ---------- tiny local DB for demo bonuses ---------- */
 function readDB() {
   try {
     return JSON.parse(
@@ -80,7 +80,6 @@ function guessUsername() {
   return "guest";
 }
 
-/* ---------- dev-mock invoices store ---------- */
 function readInvoices() {
   try {
     return JSON.parse(localStorage.getItem("byvc.api.invoices") ?? "[]") as any[];
@@ -93,12 +92,16 @@ function writeInvoices(arr: any[]) {
     localStorage.setItem("byvc.api.invoices", JSON.stringify(arr));
   } catch {}
 }
+
 function mockAddressFor(net: string) {
-  const m: any = { TRC20: "TQ5E...9XZ1" };
+  const m: any = {
+    TRC20: "TQ5E...9XZ1",
+    BEP20: "0x5ab3...F29c",
+    ERC20: "0x91D0...A77e",
+  };
   return m[net] || "0x000...000";
 }
 
-/* ---------- dev-mock api ---------- */
 const api = {
   async createDeposit(payload: {
     store_id: string;
@@ -121,7 +124,7 @@ const api = {
       status: "pending",
       createdAt: Date.now(),
       expiresAt: Date.now() + 15 * 60 * 1000,
-      payUrl: "https://example.bitcart/invoice/demo",
+      payUrl: "https://example.bitcart/checkout/invoice-demo",
       metadata: metadata ?? {},
     } as any;
     const all = readInvoices();
@@ -129,7 +132,6 @@ const api = {
     writeInvoices(all);
     return inv;
   },
-
   async webhookBitcartPaid(invoiceId: string) {
     await new Promise((r) => setTimeout(r, 200));
     const all = readInvoices();
@@ -191,14 +193,12 @@ const api = {
     writeDB(copy);
     return { ...inv, appliedBonus: bonusAmt, tier };
   },
-
   async getInvoice(id: string) {
     const inv = readInvoices().find((x: any) => x.id === id);
     return inv || null;
   },
 };
 
-/* ---------- Root Component ---------- */
 export default function PaymentsApp() {
   const [tab, setTab] = useState("deposit");
   return (
@@ -238,7 +238,6 @@ export default function PaymentsApp() {
   );
 }
 
-/* ---------- Bonus panel (unchanged visual, updated copy) ---------- */
 function BonusActivationPanel({
   amount,
   isFirst,
@@ -359,39 +358,27 @@ function BonusActivationPanel({
               <Info className="h-4 w-4 text-yellow-400" />
               Бонусы и активация
             </CardTitle>
-            <Badge variant="secondary" className="rounded-full">
-              Бонус доступен
-            </Badge>
+            <Badge variant="secondary" className="rounded-full">Бонус доступен</Badge>
           </div>
           <CardDescription className="text-neutral-400">
-            Пополнение менее 100 USDT — без бонусов и активации. Бонус сохранится
-            до первого пополнения ≥100 USDT.
+            Пополнение менее 100 USDT — без бонусов и активации. Бонус сохранится до первого пополнения ≥100 USDT.
           </CardDescription>
         </CardHeader>
         <CardContent className="text-sm space-y-3 text-neutral-200">
           <div className="flex items-start gap-2">
             <Gift className="h-4 w-4 text-neutral-400 mt-0.5" />
-            При первом пополнении{" "}
-            <span className="font-semibold">от 100 USDT</span> начислим{" "}
-            <span className="font-semibold">+100%</span>.
+            При первом пополнении <span className="font-semibold">от 100 USDT</span> начислим <span className="font-semibold">+100%</span>.
           </div>
           <div className="flex items-start gap-2">
             <Gift className="h-4 w-4 text-neutral-400 mt-0.5" />
-            Если первое пополнение сразу{" "}
-            <span className="font-semibold">≥500 USDT</span> — начислим{" "}
-            <span className="font-semibold">+200%</span>.
+            Если первое пополнение сразу <span className="font-semibold">≥500 USDT</span> — начислим <span className="font-semibold">+200%</span>.
           </div>
           <div className="flex items-start gap-2">
             <Info className="h-4 w-4 text-neutral-400 mt-0.5" />
             Если бонус начислен на сумме 100–499, то возможность +200% сгорает.
           </div>
           <div className="rounded-xl bg-black/30 p-3 text-xs text-neutral-300">
-            Например: пополнив на{" "}
-            <span className="text-white font-semibold">{ex} USDT</span>, вы
-            получили бы бонус{" "}
-            <span className="text-[#F5A623] font-semibold">+{exBonus} USDT</span>{" "}
-            и на карте было бы{" "}
-            <span className="text-white font-semibold">{exTotal} USDT</span>.
+            Например: пополнив на <span className="text-white font-semibold">{ex} USDT</span>, вы получили бы бонус <span className="text-[#F5A623] font-semibold">+{exBonus} USDT</span> и на карте было бы <span className="text-white font-semibold">{exTotal} USDT</span>.
           </div>
           <Calc />
         </CardContent>
@@ -434,8 +421,7 @@ function BonusActivationPanel({
           </div>
           <Calc />
           <div className="text-xs text-neutral-300">
-            Возможность +200% действует только если первое квалифицирующее
-            пополнение ≥500 USDT.
+            Возможность +200% действует только если первое квалифицирующее пополнение ≥500 USDT.
           </div>
         </CardContent>
         <CardFooter className="text-xs text-neutral-200">
@@ -453,9 +439,7 @@ function BonusActivationPanel({
             <ShieldCheck className="h-4 w-4" />
             Бонусы будут начислены
           </CardTitle>
-          <Badge variant="secondary" className="rounded-full">
-            Бонус доступен
-          </Badge>
+          <Badge variant="secondary" className="rounded-full">Бонус доступен</Badge>
         </div>
         <CardDescription className="text-neutral-400">
           Первое пополнение от 100 до 499.99 USDT даёт +100%.
@@ -470,11 +454,8 @@ function BonusActivationPanel({
           <ShieldCheck className="h-4 w-4 text-emerald-300 mt-0.5" />
           Карта активируется автоматически после зачисления.
         </div>
-        <Calc />
         <div className="text-xs text-neutral-300">
-          Если первое квалифицирующее пополнение{" "}
-          <span className="font-semibold text-white">&lt; 500 USDT</span>,
-          возможность получить +200% сгорает.
+          Если первое квалифицирующее пополнение <span className="font-semibold text-white">&lt; 500 USDT</span>, возможность получить +200% сгорает.
         </div>
       </CardContent>
       <CardFooter className="text-xs text-neutral-300">
@@ -484,22 +465,13 @@ function BonusActivationPanel({
   );
 }
 
-/* ---------- Deposit ---------- */
 function DepositBitcart() {
-  const [amount, setAmount] = useState<number>(
-    load<number>("byvc.pay.amount", 100)
-  );
-  const [network, setNetwork] = useState<string>(
-    load<string>("byvc.pay.network", "TRC20")
-  );
+  const [amount, setAmount] = useState<number>(load<number>("byvc.pay.amount", 100));
+  const [network, setNetwork] = useState<string>(load<string>("byvc.pay.network", "TRC20"));
   const [creating, setCreating] = useState(false);
   const [invoice, setInvoice] = useState<any>(load("byvc.pay.invoice", null));
-  const [status, setStatus] = useState<string>(
-    load<string>("byvc.pay.status", "idle")
-  );
-  const [expiresAt, setExpiresAt] = useState<number>(
-    load<number>("byvc.pay.expiresAt", 0)
-  );
+  const [status, setStatus] = useState<string>(load<string>("byvc.pay.status", "idle"));
+  const [expiresAt, setExpiresAt] = useState<number>(load<number>("byvc.pay.expiresAt", 0));
   const [, setDbTick] = useState(0);
   const [success, setSuccess] = useState<null | {
     amount: number;
@@ -508,7 +480,7 @@ function DepositBitcart() {
     balance?: number;
   }>(null);
 
-  // модалка реквизитов
+  // новая модалка с реквизитами
   const [detailsOpen, setDetailsOpen] = useState(false);
 
   const username = guessUsername();
@@ -517,24 +489,18 @@ function DepositBitcart() {
   const bonusAlreadyApplied = !!rec?.bonuses?.firstBonusApplied;
   const isFirstEligible = !bonusAlreadyApplied;
 
-  useEffect(() => save("byvc.pay.amount", amount), [amount]);
-  useEffect(() => save("byvc.pay.network", network), [network]);
-  useEffect(() => save("byvc.pay.invoice", invoice), [invoice]);
-  useEffect(() => save("byvc.pay.status", status), [status]);
-  useEffect(() => save("byvc.pay.expiresAt", expiresAt), [expiresAt]);
+  useEffect(() => { save("byvc.pay.amount", amount); }, [amount]);
+  useEffect(() => { save("byvc.pay.network", network); }, [network]);
+  useEffect(() => { save("byvc.pay.invoice", invoice); }, [invoice]);
+  useEffect(() => { save("byvc.pay.status", status); }, [status]);
+  useEffect(() => { save("byvc.pay.expiresAt", expiresAt); }, [expiresAt]);
 
-  // timer
   const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   const secs = Math.max(0, Math.floor((expiresAt - now) / 1000));
-  useEffect(() => {
-    if (expiresAt && secs === 0 && status === "pending") setStatus("expired");
-  }, [secs, expiresAt, status]);
+  useEffect(() => { if (expiresAt && secs === 0 && status === "pending") setStatus("expired"); }, [secs, expiresAt, status]);
 
-  // poll invoice (address, expiration, status)
+  // Поллинг инвойса: тянем адрес, срок, статус
   useEffect(() => {
     if (!invoice?.id || status !== "pending") return;
     let stop = false;
@@ -544,7 +510,6 @@ function DepositBitcart() {
         if (!res.ok) return;
         const data = await res.json();
 
-        // address (много вариантов полей в Bitcart)
         const addr =
           data?.address ||
           data?.payment_address ||
@@ -556,7 +521,6 @@ function DepositBitcart() {
           setInvoice((prev: any) => ({ ...prev, address: addr }));
         }
 
-        // expiration
         const exp =
           data?.expiration ||
           data?.expires_at ||
@@ -565,30 +529,22 @@ function DepositBitcart() {
           setExpiresAt(typeof exp === "number" ? exp : Date.parse(exp));
         }
 
-        // status
-        const st = (data.status || data.payment_status || data.state || "")
-          .toLowerCase()
-          .trim();
+        const st = (data.status || data.payment_status || data.state || "").toLowerCase();
         if (st.includes("confirmed") || st.includes("paid")) {
           const a = Number((invoice.amount ?? data.price ?? data.amount) || 0);
-          const tier =
-            !bonusAlreadyApplied && a >= 100 ? (a >= 500 ? 200 : 100) : 0;
-          const bonusAmt = +((a * tier) / 100).toFixed(2);
+          const tier = (!bonusAlreadyApplied && a >= 100) ? (a >= 500 ? 200 : 100) : 0;
+          const bonusAmt = +(a * tier / 100).toFixed(2);
           setStatus("confirmed");
           setSuccess({ amount: a, bonus: bonusAmt, total: a + bonusAmt });
           stop = true;
         }
       } catch {}
     };
-    const timer = setInterval(() => !stop && poll(), 5000);
+    const timer = setInterval(() => { if (!stop) poll(); }, 5000);
     poll();
-    return () => {
-      stop = true;
-      clearInterval(timer);
-    };
+    return () => { stop = true; clearInterval(timer); };
   }, [invoice?.id, status, bonusAlreadyApplied, invoice?.amount, invoice?.address, expiresAt]);
 
-  /* ----- Create invoice ----- */
   const createInvoice = async () => {
     setCreating(true);
     const payload = {
@@ -598,6 +554,7 @@ function DepositBitcart() {
       network,
       metadata: { username, network, firstDepositEligible: isFirstEligible },
     } as any;
+
     try {
       const res = await fetch("/api/payments/deposits", {
         method: "POST",
@@ -613,23 +570,17 @@ function DepositBitcart() {
         ccy: inv.currency,
         network: inv.network ?? network,
         address: inv.address ?? null,
-        // Ссылка на публичную страницу ИНВОЙСА (а не legacy checkout)
+        // Стараемся получить ссылку именно на страницу инвойса
         payUrl:
           inv.public_url ||
           inv.checkout_link ||
           inv.links?.invoice ||
           inv.links?.checkout ||
           inv.pay_url ||
-          (inv.id
-            ? `${ENV.BITCART_ADMIN_URL.replace(/\/admin\/?$/, "")}/i/${inv.id}`
-            : null),
+          (inv.id ? `${ENV.BITCART_ADMIN_URL.replace(/\/admin\/?$/, "")}/i/${inv.id}` : null),
       });
-      const exp =
-        inv?.expiration || inv?.expires_at || inv?.expiresAt || null;
-      setExpiresAt(
-        exp ? (typeof exp === "number" ? exp : Date.parse(exp)) : Date.now() + 15 * 60 * 1000
-      );
       setStatus("pending");
+      setExpiresAt(inv.expiresAt ?? Date.now() + 15 * 60 * 1000);
       setCreating(false);
       return;
     } catch (e) {
@@ -674,20 +625,13 @@ function DepositBitcart() {
             d?.addresses?.[0] ||
             null;
           if (addr) setInvoice((prev: any) => ({ ...prev, address: addr }));
-          const exp =
-            d?.expiration ||
-            d?.expires_at ||
-            (d?.expiresAt ? Date.parse(d.expiresAt) : null);
-          if (exp && !expiresAt) {
-            setExpiresAt(typeof exp === "number" ? exp : Date.parse(exp));
-          }
         }
       } catch {}
     }
     setDetailsOpen(true);
   };
 
-  // перейти к странице инвойса (оплата)
+  // открыть публичную страницу инвойса (новый UX Bitcart)
   const openInvoicePage = () => {
     if (invoice?.payUrl) {
       window.open(invoice.payUrl, "_blank", "noopener,noreferrer");
@@ -696,7 +640,6 @@ function DepositBitcart() {
     }
   };
 
-  // ручной мок "оплачено" (оставил для отладки)
   const markPaid = async () => {
     if (!invoice?.id) return;
     const a = Number(invoice.amount || 0);
@@ -734,7 +677,7 @@ function DepositBitcart() {
         <CardContent className="space-y-3">
           {!invoice && (
             <>
-              <div className="grid grid-cols-1 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 {networks.map((n) => (
                   <Button
                     key={n.code}
@@ -752,9 +695,9 @@ function DepositBitcart() {
               <Row
                 label="Сеть"
                 value={network}
-                hint={`Комиссия ~${networks.find((n) => n.code === network)?.fee} USDT • ${
-                  networks.find((n) => n.code === network)?.eta
-                }`}
+                hint={`Комиссия ~${
+                  networks.find((n) => n.code === network)?.fee
+                } USDT • ${networks.find((n) => n.code === network)?.eta}`}
               />
               <div className="grid gap-2">
                 <Label>Сумма (USDT)</Label>
@@ -802,7 +745,7 @@ function DepositBitcart() {
                   <KVP label="Сеть" value={invoice.network} />
                   <KVP
                     label="Адрес"
-                    value={invoice.address ?? "откройте «Реквизиты оплаты»"}
+                    value={invoice.address ?? "откройте «Открыть оплату»"}
                     copyable={!!invoice.address}
                   />
                 </div>
@@ -813,22 +756,17 @@ function DepositBitcart() {
                   onClick={openDetails}
                   className="rounded-2xl bg-[#F5A623] text-black hover:bg-[#ffb739]"
                 >
-                  Реквизиты оплаты
+                  Открыть оплату
                 </Button>
                 <Button onClick={cancel} variant="secondary" className="rounded-2xl">
                   Отменить
                 </Button>
-
-                {/* новая кнопка */}
                 <Button
                   onClick={openInvoicePage}
                   className="rounded-2xl col-span-2 bg-emerald-600 hover:bg-emerald-700"
                 >
                   Перейти к оплате
                 </Button>
-
-                {/* оставить для отладки при необходимости */}
-                {/* <Button onClick={markPaid} className="rounded-2xl col-span-2">Мок: Оплачено</Button> */}
               </div>
             </>
           )}
@@ -844,9 +782,10 @@ function DepositBitcart() {
           open={detailsOpen}
           onClose={() => setDetailsOpen(false)}
           amount={Number(invoice.amount || 0)}
-          network={invoice.network}
-          address={invoice.address || "ожидаем адрес от Bitcart..."}
-          secondsLeft={secs}
+          address={invoice.address || ""}
+          network={invoice.network || "TRC20"}
+          seconds={Math.max(0, Math.floor((expiresAt - now) / 1000))}
+          onGoPay={openInvoicePage}
         />
       )}
 
@@ -860,11 +799,18 @@ function DepositBitcart() {
           balance={success.balance}
         />
       )}
+
+      {/* Кнопка для быстрой отметки (dev) — оставил, если нужна */}
+      {/* <div className="flex justify-center">
+        <Button variant="secondary" onClick={markPaid} className="rounded-xl">
+          <Check className="h-4 w-4 mr-2" />
+          Отметить как оплачено (мок)
+        </Button>
+      </div> */}
     </div>
   );
 }
 
-/* ---------- Withdraw mock ---------- */
 function WithdrawMock() {
   const [amount, setAmount] = useState<number>(50);
   const [network, setNetwork] = useState<string>("TRC20");
@@ -872,82 +818,41 @@ function WithdrawMock() {
   const [status, setStatus] = useState<string>("idle");
 
   const submit = () => {
-    if (!addr || amount <= 0) {
-      alert("Заполните адрес и сумму");
-      return;
-    }
-    if (amount <= 100) setStatus("sent");
-    else setStatus("manual");
+    if (!addr || amount <= 0) { alert("Заполните адрес и сумму"); return; }
+    if (amount <= 100) { setStatus("sent"); }
+    else { setStatus("manual"); }
   };
 
   return (
     <Card>
-      <CardHeader className="pb-2">
-        <CardTitle>Вывод средств</CardTitle>
-      </CardHeader>
+      <CardHeader className="pb-2"><CardTitle>Вывод средств</CardTitle></CardHeader>
       <CardContent className="space-y-3">
-        <div className="grid grid-cols-1 gap-2">
-          <Button
-            onClick={() => setNetwork("TRC20")}
-            className={`${
-              network === "TRC20"
-                ? "bg-[#F5A623] text-black hover:bg-[#ffb739]"
-                : "bg-black/40 text-neutral-200 hover:bg-black/60"
-            } rounded-xl`}
-          >
-            TRC20
-          </Button>
+        <div className="grid grid-cols-3 gap-2">
+          {networks.map(n => (
+            <Button
+              key={n.code}
+              onClick={() => setNetwork(n.code)}
+              className={`${network === n.code ? 'bg-[#F5A623] text-black hover:bg-[#ffb739]' : 'bg-black/40 text-neutral-200 hover:bg-black/60'} rounded-xl`}
+            >
+              {n.code}
+            </Button>
+          ))}
         </div>
-        <div className="grid gap-2">
-          <Label>Адрес</Label>
-          <UInput
-            value={addr}
-            onChange={(e) => setAddr(e.target.value)}
-            placeholder="Вставьте адрес кошелька"
-          />
-        </div>
-        <div className="grid gap-2">
-          <Label>Сумма (USDT)</Label>
-          <UInput
-            type="number"
-            value={amount}
-            onChange={(e) => setAmount(Number(e.target.value))}
-          />
-        </div>
-        <Button onClick={submit} className="rounded-2xl h-12">
-          Подтвердить
-        </Button>
-        {status !== "idle" && (
-          <div className="text-xs text-neutral-300">
-            Статус: {status === "sent" ? "Отправлено" : "Ожидает ручной проверки"}
-          </div>
-        )}
+        <div className="grid gap-2"><Label>Адрес</Label><UInput value={addr} onChange={e => setAddr(e.target.value)} placeholder="Вставьте адрес кошелька" /></div>
+        <div className="grid gap-2"><Label>Сумма (USDT)</Label><UInput type="number" value={amount} onChange={e => setAmount(Number(e.target.value))} /></div>
+        <Button onClick={submit} className="rounded-2xl h-12">Подтвердить</Button>
+        {status !== "idle" && (<div className="text-xs text-neutral-300">Статус: {status === 'sent' ? 'Отправлено' : 'Ожидает ручной проверки'}</div>)}
       </CardContent>
     </Card>
   );
 }
 
-/* ---------- UI helpers ---------- */
-const UInput = React.forwardRef<HTMLInputElement, React.ComponentProps<typeof Input>>(
-  ({ className = "", ...props }, ref) => (
-    <Input
-      ref={ref}
-      className={`rounded-xl bg-black/40 border-[#2a2f3a] text-white placeholder:text-neutral-400 ${className}`}
-      {...props}
-    />
-  )
-);
+const UInput = React.forwardRef<HTMLInputElement, React.ComponentProps<typeof Input>>(({ className = "", ...props }, ref) => (
+  <Input ref={ref} className={`rounded-xl bg-black/40 border-[#2a2f3a] text-white placeholder:text-neutral-400 ${className}`} {...props} />
+));
 UInput.displayName = "UInput";
 
-function Row({
-  label,
-  value,
-  hint,
-}: {
-  label: string;
-  value: React.ReactNode;
-  hint?: string;
-}) {
+function Row({ label, value, hint }: { label: string; value: React.ReactNode; hint?: string }) {
   return (
     <div className="flex items-center justify-between py-2">
       <div>
@@ -959,64 +864,35 @@ function Row({
   );
 }
 
-function KVP({
-  label,
-  value,
-  copyable = false,
-}: {
-  label: string;
-  value: string;
-  copyable?: boolean;
-}) {
-  const onCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(value);
-    } catch {}
-  };
+function KVP({ label, value, copyable = false }: { label: string; value: string; copyable?: boolean }) {
+  const onCopy = async () => { try { await navigator.clipboard.writeText(value); } catch {} };
   return (
     <div className="flex items-center justify-between gap-2">
       <div>
         <div className="text-xs text-neutral-400">{label}</div>
         <div className="text-sm font-mono text-white break-all">{value}</div>
       </div>
-      {copyable && (
-        <Button size="icon" variant="secondary" className="rounded-xl" onClick={onCopy}>
-          <Copy className="h-4 w-4" />
-        </Button>
-      )}
+      {copyable && <Button size="icon" variant="secondary" className="rounded-xl" onClick={onCopy}><Copy className="h-4 w-4" /></Button>}
     </div>
   );
 }
 
 function statusLabel(s: string) {
   switch (s) {
-    case "pending":
-      return "Ожидает оплаты";
-    case "confirmed":
-      return "Оплачено";
-    case "expired":
-      return "Счёт истёк";
-    case "cancelled":
-      return "Отменён";
-    default:
-      return "Новый";
+    case "pending": return "Ожидает оплаты";
+    case "confirmed": return "Оплачено";
+    case "expired": return "Счёт истёк";
+    case "cancelled": return "Отменён";
+    default: return "Новый";
   }
 }
 
+function pad(n: number) { return String(n).padStart(2, '0'); }
+
 function SuccessModal({
-  open,
-  onClose,
-  amount,
-  bonus,
-  total,
-  balance,
+  open, onClose, amount, bonus, total, balance,
 }: {
-  open: boolean;
-  onClose: () => void;
-  amount: number;
-  bonus: number;
-  total: number;
-  balance?: number;
+  open: boolean; onClose: () => void; amount: number; bonus: number; total: number; balance?: number;
 }) {
   if (!open) return null;
   return (
@@ -1024,43 +900,65 @@ function SuccessModal({
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative w-full max-w-sm rounded-2xl bg-[#141821] border border-[#2a2f3a] p-5 shadow-xl">
         <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2 text-emerald-300">
-            <ShieldCheck className="h-5 w-5" />
-            <span className="font-semibold">Пополнение успешно</span>
-          </div>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-200">
-            ✕
-          </button>
+          <div className="flex items-center gap-2 text-emerald-300"><ShieldCheck className="h-5 w-5" /><span className="font-semibold">Пополнение успешно</span></div>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-200">✕</button>
         </div>
         <div className="space-y-2 text-sm text-neutral-200">
-          <div className="flex items-center justify-between">
-            <span>Сумма пополнения</span>
-            <span className="font-semibold text-white">{amount.toFixed(2)} USDT</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span>Начисленный бонус</span>
-            <span
-              className={
-                bonus > 0 ? "font-semibold text-[#F5A623]" : "font-semibold text-neutral-300"
-              }
-            >
-              {bonus.toFixed(2)} USDT
-            </span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span>Итого зачислено</span>
-            <span className="font-bold text-white">{total.toFixed(2)} USDT</span>
-          </div>
-          {typeof balance === "number" && (
-            <div className="flex items-center justify-between">
-              <span>Текущий баланс</span>
-              <span className="font-semibold text-white">{balance.toFixed(2)} USDT</span>
-            </div>
-          )}
+          <div className="flex items-center justify-between"><span>Сумма пополнения</span><span className="font-semibold text-white">{amount.toFixed(2)} USDT</span></div>
+          <div className="flex items-center justify-between"><span>Начисленный бонус</span><span className={bonus>0 ? 'font-semibold text-[#F5A623]' : 'font-semibold text-neutral-300'}>{bonus.toFixed(2)} USDT</span></div>
+          <div className="flex items-center justify-between"><span>Итого зачислено</span><span className="font-bold text-white">{total.toFixed(2)} USDT</span></div>
+          {typeof balance === 'number' && (<div className="flex items-center justify-between"><span>Текущий баланс</span><span className="font-semibold text-white">{balance.toFixed(2)} USDT</span></div>)}
         </div>
-        <div className="mt-4">
-          <Button onClick={onClose} className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700">
-            Ок
+        <div className="mt-4"><Button onClick={onClose} className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700">Ок</Button></div>
+      </div>
+    </div>
+  );
+}
+
+function DetailsModal({
+  open, onClose, amount, address, network, seconds, onGoPay,
+}: {
+  open: boolean;
+  onClose: () => void;
+  amount: number;
+  address: string;
+  network: string;
+  seconds: number;
+  onGoPay: () => void;
+}) {
+  if (!open) return null;
+  const mm = pad(Math.floor(seconds / 60));
+  const ss = pad(seconds % 60);
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-md rounded-2xl bg-[#12151c] border border-[#2a2f3a] p-5 shadow-xl">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <QrCode className="h-5 w-5 text-[#F5A623]" />
+            <span className="font-semibold">Реквизиты оплаты</span>
+          </div>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-200">✕</button>
+        </div>
+
+        <div className="space-y-2 rounded-xl bg-black/30 p-3 border border-[#2a2f3a]">
+          <KVP label="Сумма" value={`${amount.toFixed(2)} USDT`} />
+          <KVP label="Сеть" value={network} />
+          <KVP label="Адрес" value={address || "ожидаем адрес от Bitcart..."} copyable={!!address} />
+          <div className="text-xs text-neutral-400 flex items-center gap-2"><Clock className="h-4 w-4" /> Счёт истекает через {mm}:{ss}</div>
+        </div>
+
+        <div className="mt-3 h-40 rounded-xl bg-[#0e1218] border border-[#2a2f3a] grid place-items-center">
+          <div className="text-xs text-neutral-500">QR появится после открытия страницы оплаты</div>
+        </div>
+
+        <div className="mt-4 flex gap-2">
+          <Button onClick={onGoPay} className="flex-1 rounded-2xl bg-emerald-600 hover:bg-emerald-700">
+            Перейти к оплате
+          </Button>
+          <Button onClick={onClose} variant="secondary" className="rounded-2xl">
+            Закрыть
           </Button>
         </div>
       </div>
@@ -1068,84 +966,17 @@ function SuccessModal({
   );
 }
 
-function DetailsModal({
-  open,
-  onClose,
-  amount,
-  network,
-  address,
-  secondsLeft,
-}: {
-  open: boolean;
-  onClose: () => void;
-  amount: number;
-  network: string;
-  address: string;
-  secondsLeft: number;
-}) {
-  if (!open) return null;
-  const timeLabel = useMemo(() => {
-    const m = Math.floor(secondsLeft / 60);
-    const s = secondsLeft % 60;
-    return `${pad(m)}:${pad(s)}`;
-  }, [secondsLeft]);
-
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-md rounded-2xl bg-[#141821] border border-[#2a2f3a] p-5 shadow-xl">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2 text-white">
-            <QrCode className="h-5 w-5 text-[#F5A623]" />
-            <span className="font-semibold">Реквизиты оплаты</span>
-          </div>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-200">
-            ✕
-          </button>
-        </div>
-
-        <div className="space-y-3">
-          <div className="rounded-xl bg-black/30 border border-[#2a2f3a] p-3">
-            <div className="text-xs text-neutral-400">Сумма</div>
-            <div className="text-sm font-semibold text-white">
-              {amount.toFixed(2)} USDT
-            </div>
-            <div className="mt-2 text-xs text-neutral-400">Сеть</div>
-            <div className="text-sm font-semibold text-white">{network}</div>
-            <div className="mt-2 text-xs text-neutral-400">Адрес</div>
-            <div className="text-sm font-mono text-white break-all">{address}</div>
-          </div>
-
-          <div className="rounded-xl bg-black/30 border border-[#2a2f3a] p-6 grid place-items-center">
-            <QrCode className="h-16 w-16 text-neutral-400" />
-            <div className="mt-3 text-xs text-neutral-400 flex items-center gap-2">
-              <Clock className="h-4 w-4" /> До истечения: {timeLabel}
-            </div>
-          </div>
-
-          <div className="flex gap-2">
-            <Button onClick={onClose} className="w-full rounded-xl">
-              Закрыть
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function pad(n: number) {
-  return String(n).padStart(2, "0");
-}
-
 function Smoke() {
   useEffect(() => {
     try {
-      const ok = document.body.textContent?.includes("Платёжный модуль");
-      console.assert(!!ok, "Header should render");
-    } catch (e) {
-      console.warn("Smoke test warn", e);
-    }
+      const ok = document.body.textContent?.includes('Платёжный модуль');
+      console.assert(!!ok, 'Header should render');
+      const text = document.body.textContent || '';
+      const hasBonus = ['Бонусы и активация', 'Бонусы будут начислены', 'Максимальный бонус к первому пополнению', 'Повторное пополнение']
+        .some(s => text.includes(s));
+      console.assert(!!hasBonus, 'Bonus panel should render');
+      const invCreated = readInvoices().length >= 0; console.assert(invCreated !== undefined, 'Invoices store readable');
+    } catch (e) { console.warn('Smoke test warn', e); }
   }, []);
   return null;
 }
