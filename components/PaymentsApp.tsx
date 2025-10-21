@@ -7,9 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import {
-  Clock, Loader2, ShieldCheck, Wallet, Gift, Info,
-} from "lucide-react";
+import { Loader2, ShieldCheck, Wallet, Gift, Info } from "lucide-react";
 
 /** ===== ENV / hosts ===== */
 const RAW_ADMIN =
@@ -17,10 +15,10 @@ const RAW_ADMIN =
     (process as any)?.env?.NEXT_PUBLIC_BITCART_ADMIN_URL) ||
   "https://pay.bybitpay.pro";
 
-// БАЗА АДМИНКИ (с /admin) — нужна для правильной ссылки на инвойс
+// Admin base (with /admin) — required for correct invoice link
 const ADMIN_BASE = RAW_ADMIN.replace(/\/+$/, "");
 
-/** ===== small helpers ===== */
+/** ===== helpers ===== */
 const save = (k: string, v: any) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 const load = <T,>(k: string, d: T): T => { try { const s = localStorage.getItem(k); return s ? (JSON.parse(s) as T) : d; } catch { return d; } };
 
@@ -44,22 +42,20 @@ function readDB() {
   }
 }
 
-const pad = (n: number) => String(n).padStart(2, "0");
 function statusLabel(s: string) {
   switch (s) {
-    case "pending": return "Ожидает оплаты";
-    case "confirmed": return "Оплачено";
-    case "expired": return "Счёт истёк";
-    case "cancelled": return "Отменён";
-    default: return "Новый";
+    case "pending": return "Awaiting payment";
+    case "confirmed": return "Paid";
+    case "expired": return "Expired";
+    case "cancelled": return "Cancelled";
+    default: return "New";
   }
 }
 
-/** Надёжная нормализация времени истечения инвойса */
+/** Normalize expiry date safely (kept for future use if needed) */
 function normalizeExpiry(expiresAt: any): number {
   if (!expiresAt) return Date.now() + 15 * 60 * 1000;
   if (typeof expiresAt === "number") {
-    // если секунды — домножим на 1000
     return expiresAt < 1e12 ? expiresAt * 1000 : expiresAt;
   }
   if (typeof expiresAt === "string") {
@@ -71,10 +67,8 @@ function normalizeExpiry(expiresAt: any): number {
   return Date.now() + 15 * 60 * 1000;
 }
 
-/** ===== networks (TRC20 only) ===== */
-const networks = [{ code: "TRC20", fee: 1, eta: "~3–5 мин" }];
+const networks = [{ code: "TRC20", fee: 1, eta: "~3–5 min" }];
 
-/** ============ MAIN APP ============ */
 export default function PaymentsApp() {
   const [tab, setTab] = useState("deposit");
   return (
@@ -86,7 +80,7 @@ export default function PaymentsApp() {
           </div>
           <div>
             <div className="text-xs text-neutral-400">BYBIT VC</div>
-            <div className="font-semibold">Платёжный модуль</div>
+            <div className="font-semibold">Payments Module</div>
           </div>
         </div>
         <Badge className="rounded-full bg-[#F5A623]/15 text-[#F5A623] border border-[#F5A623]/40">
@@ -97,19 +91,19 @@ export default function PaymentsApp() {
       <main className="max-w-md mx-auto">
         <Tabs value={tab} onValueChange={setTab} className="w-full">
           <TabsList className="grid grid-cols-2 w-full rounded-2xl bg-black/60 border border-[#262b36] backdrop-blur mb-4">
-            <TabsTrigger value="deposit">Пополнение</TabsTrigger>
-            <TabsTrigger value="withdraw">Вывод</TabsTrigger>
+            <TabsTrigger value="deposit">Deposit</TabsTrigger>
+            <TabsTrigger value="withdraw">Withdraw</TabsTrigger>
           </TabsList>
 
-        <TabsContent value="deposit"><DepositBitcart /></TabsContent>
-        <TabsContent value="withdraw"><WithdrawMock /></TabsContent>
+          <TabsContent value="deposit"><DepositBitcart /></TabsContent>
+          <TabsContent value="withdraw"><WithdrawMock /></TabsContent>
         </Tabs>
       </main>
     </div>
   );
 }
 
-/** ===== инфо-панель бонусов/активации (вернул внутри файла) ===== */
+/** ===== Info panel (Bonuses & activation) ===== */
 function BonusActivationPanel({ amount, isFirst }: { amount: number; isFirst: boolean }) {
   const lt100 = amount < 100;
   const gte100 = amount >= 100;
@@ -118,55 +112,59 @@ function BonusActivationPanel({ amount, isFirst }: { amount: number; isFirst: bo
   const bonus = tier ? +((amount * tier) / 100).toFixed(2) : 0;
   const total = +(amount + bonus).toFixed(2);
 
-  const Row = ({ icon, text }: { icon: React.ReactNode; text: React.ReactNode }) => (
-    <div className="flex items-start gap-2">
-      <div className="mt-0.5">{icon}</div>
-      <div className="text-sm text-neutral-200">{text}</div>
-    </div>
-  );
-
   return (
     <Card className="rounded-2xl bg-[#1b2029] border-[#2a2f3a]">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base flex items-center gap-2">
             {isFirst ? <Gift className="h-4 w-4 text-[#F5A623]" /> : <Info className="h-4 w-4 text-neutral-400" />}
-            {isFirst ? "Бонус к первому пополнению" : "Повторное пополнение"}
+            {isFirst ? "First Deposit Bonus" : "Repeat Deposit"}
           </CardTitle>
           <Badge variant="secondary" className="rounded-full">
-            {isFirst ? (tier ? `+${tier}%` : "Бонус доступен") : "Бонус уже использован"}
+            {isFirst ? (tier ? `+${tier}%` : "Bonus available") : "Bonus used"}
           </Badge>
         </div>
         <CardDescription className="text-neutral-400">
           {isFirst
-            ? "Кэшбэк 20% на все покупки. Карта активируется после зачисления."
-            : "Кэшбэк 20% действует. Карта уже активна."}
+            ? "20% cashback applies to all purchases. Card activates automatically after deposit."
+            : "20% cashback active. Card already activated."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
         {isFirst ? (
           <>
-            <Row icon={<Gift className="h-4 w-4 text-neutral-400" />} text={<>При первом пополнении от <b>100 USDT</b> начислим <b>+100%</b>.</>} />
-            <Row icon={<Gift className="h-4 w-4 text-neutral-400" />} text={<>Если первое пополнение <b>≥500 USDT</b> — начислим <b>+200%</b>.</>} />
+            <div className="flex items-start gap-2 text-sm text-neutral-200">
+              <Gift className="h-4 w-4 text-neutral-400 mt-0.5" />
+              On first deposit from <b>100 USDT</b> you get <b>+100%</b>.
+            </div>
+            <div className="flex items-start gap-2 text-sm text-neutral-200">
+              <Gift className="h-4 w-4 text-neutral-400 mt-0.5" />
+              On first deposit ≥500 USDT — you get <b>+200%</b>.
+            </div>
           </>
         ) : (
           <>
-            <Row icon={<Info className="h-4 w-4 text-neutral-400" />} text={<>Бонус первого пополнения уже был начислен ранее.</>} />
-            <Row icon={<ShieldCheck className="h-4 w-4 text-emerald-300" />} text={<>Кэшбэк <b>20%</b> действует на все покупки.</>} />
+            <div className="flex items-start gap-2 text-sm text-neutral-200">
+              <Info className="h-4 w-4 text-neutral-400 mt-0.5" />
+              First deposit bonus already applied earlier.
+            </div>
+            <div className="flex items-start gap-2 text-sm text-neutral-200">
+              <ShieldCheck className="h-4 w-4 text-emerald-300 mt-0.5" />
+              Cashback <b>20%</b> is active for all purchases.
+            </div>
           </>
         )}
-
         <div className="grid grid-cols-3 gap-2 mt-2">
           <div className="rounded-xl bg-black/30 px-3 py-2">
-            <div className="text-[11px] text-neutral-400">Ваше пополнение</div>
+            <div className="text-[11px] text-neutral-400">Deposit</div>
             <div className="text-sm font-semibold text-white">{amount.toFixed(2)} USDT</div>
           </div>
           <div className="rounded-xl bg-black/30 px-3 py-2">
-            <div className="text-[11px] text-neutral-400">Бонус</div>
+            <div className="text-[11px] text-neutral-400">Bonus</div>
             <div className="text-sm font-semibold text-white">{bonus.toFixed(2)} USDT</div>
           </div>
           <div className="rounded-xl bg-[#F5A623]/20 border border-[#F5A623]/40 px-3 py-2">
-            <div className="text-[11px] text-[#F5A623]">Итого на карте</div>
+            <div className="text-[11px] text-[#F5A623]">Total on card</div>
             <div className="text-base font-bold text-white">{total.toFixed(2)} USDT</div>
           </div>
         </div>
@@ -175,7 +173,7 @@ function BonusActivationPanel({ amount, isFirst }: { amount: number; isFirst: bo
   );
 }
 
-/** ====== Deposit (создание счёта → открыть инвойс) ====== */
+/** ===== Deposit with Bitcart ===== */
 function DepositBitcart() {
   const username = guessUsername();
   const db = readDB();
@@ -187,24 +185,13 @@ function DepositBitcart() {
   const [creating, setCreating] = useState(false);
   const [invoice, setInvoice] = useState<any>(load("byvc.pay.invoice", null));
   const [status, setStatus] = useState<string>(load("byvc.pay.status", "idle"));
-  const [expiresAt, setExpiresAt] = useState<number>(load("byvc.pay.expiresAt", 0));
   const [success, setSuccess] = useState<null | { amount: number }>(null);
 
   useEffect(() => save("byvc.pay.amount", amount), [amount]);
   useEffect(() => save("byvc.pay.invoice", invoice), [invoice]);
   useEffect(() => save("byvc.pay.status", status), [status]);
-  useEffect(() => save("byvc.pay.expiresAt", expiresAt), [expiresAt]);
 
-  // таймер
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
-  const secs = useMemo(() => (expiresAt ? Math.max(0, Math.floor((expiresAt - now) / 1000)) : 0), [expiresAt, now]);
-  useEffect(() => {
-    if (!expiresAt) return;
-    if (secs === 0 && status === "pending") setStatus("expired");
-  }, [secs, expiresAt, status]);
-
-  // поллинг статуса
+  // Polling status
   useEffect(() => {
     if (!invoice?.id || status !== "pending") return;
     let stop = false;
@@ -244,7 +231,8 @@ function DepositBitcart() {
       if (!res.ok) throw new Error("Failed to create invoice");
       const inv = await res.json();
 
-      const ttl = normalizeExpiry(inv?.expiresAt || inv?.expiration || inv?.expires_at);
+      // Keep for potential logic; not used by UI (no timer).
+      normalizeExpiry(inv?.expiresAt || inv?.expiration || inv?.expires_at);
 
       setInvoice({
         id: inv.id,
@@ -253,19 +241,18 @@ function DepositBitcart() {
         payUrl: inv.payUrl || null,
       });
       setStatus("pending");
-      setExpiresAt(ttl);
     } catch (e) {
       console.error("create invoice error:", e);
-      alert("Не удалось создать счёт. Попробуйте ещё раз.");
+      alert("Failed to create invoice. Try again.");
     } finally {
       setCreating(false);
     }
   };
 
-  // ссылка на инвойс: АДМИН-URL (/admin/i/<id>)
+  // Use admin URL for invoices
   const invoiceUrl = useMemo(() => {
     if (!invoice?.id) return null;
-    if (invoice?.payUrl) return invoice.payUrl; // если Bitcart вернул прямую ссылку — используем её
+    if (invoice?.payUrl) return invoice.payUrl;
     return `${ADMIN_BASE}/i/${invoice.id}`;
   }, [invoice?.id, invoice?.payUrl]);
 
@@ -277,14 +264,12 @@ function DepositBitcart() {
   const cancel = () => {
     setStatus("cancelled");
     setInvoice(null);
-    setExpiresAt(0);
   };
 
   const onCloseSuccess = () => {
     setSuccess(null);
     setInvoice(null);
     setStatus("idle");
-    setExpiresAt(0);
   };
 
   const visibleAmount = invoice ? Number(invoice.amount || 0) : Number(amount || 0);
@@ -296,11 +281,11 @@ function DepositBitcart() {
       <Card>
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
-            <CardTitle>Пополнение через Bitcart</CardTitle>
+            <CardTitle>Deposit via Bitcart</CardTitle>
             <Badge className="rounded-full bg-white/10">@{username}</Badge>
           </div>
           <CardDescription className="text-neutral-400">
-            Выберите сумму и создайте счёт
+            Choose the amount and create an invoice
           </CardDescription>
         </CardHeader>
 
@@ -308,19 +293,19 @@ function DepositBitcart() {
           {!invoice && (
             <>
               <div className="grid grid-cols-1 gap-2">
-                <div className="text-sm text-neutral-400">Сеть</div>
+                <div className="text-sm text-neutral-400">Network</div>
                 <div className="flex gap-2">
                   <Button disabled className="rounded-xl bg-[#F5A623] text-black">
                     {networks[0].code}
                   </Button>
                 </div>
                 <div className="text-xs text-neutral-500">
-                  Комиссия ~{networks[0].fee} USDT • {networks[0].eta}
+                  Fee ~{networks[0].fee} USDT • {networks[0].eta}
                 </div>
               </div>
 
               <div className="grid gap-2">
-                <Label>Сумма (USDT)</Label>
+                <Label>Amount (USDT)</Label>
                 <Input
                   type="number"
                   className="rounded-xl bg-black/40 border-[#2a2f3a] text-white placeholder:text-neutral-400"
@@ -334,7 +319,7 @@ function DepositBitcart() {
                 onClick={createInvoice}
                 className="w-full rounded-2xl h-12 bg-emerald-600 hover:bg-emerald-700"
               >
-                {creating ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Создание счёта...</>) : (<>Создать счёт</>)}
+                {creating ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creating invoice...</>) : (<>Create invoice</>)}
               </Button>
             </>
           )}
@@ -343,17 +328,13 @@ function DepositBitcart() {
             <>
               <div className="rounded-2xl p-3 bg-black/40 border border-[#2a2f3a] flex items-center justify-between">
                 <div>
-                  <div className="text-xs text-neutral-400">Статус</div>
+                  <div className="text-xs text-neutral-400">Status</div>
                   <div className="text-sm font-semibold">{statusLabel(status)}</div>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-neutral-300">
-                  <Clock className="h-4 w-4" />
-                  {pad(Math.floor(secs / 60))}:{pad(secs % 60)}
                 </div>
               </div>
 
               <div className="rounded-2xl p-4 bg-black/40 border border-[#2a2f3a]">
-                <div className="text-xs text-neutral-400">Сумма к оплате</div>
+                <div className="text-xs text-neutral-400">Amount to pay</div>
                 <div className="text-base font-semibold">
                   {Number(invoice.amount || 0).toFixed(2)} USDT • TRC20
                 </div>
@@ -361,10 +342,10 @@ function DepositBitcart() {
 
               <div className="grid grid-cols-2 gap-2">
                 <Button onClick={openInvoice} className="rounded-2xl bg-[#F5A623] text-black hover:bg-[#ffb739]">
-                  Перейти к оплате
+                  Go to payment
                 </Button>
                 <Button onClick={cancel} variant="secondary" className="rounded-2xl">
-                  Отменить
+                  Cancel
                 </Button>
               </div>
             </>
@@ -372,7 +353,7 @@ function DepositBitcart() {
         </CardContent>
 
         <CardFooter className="text-xs text-neutral-400">
-          После подтверждения сети баланс будет зачислен через вебхук.
+          After network confirmation, funds will be credited automatically via webhook.
         </CardFooter>
       </Card>
 
@@ -383,7 +364,7 @@ function DepositBitcart() {
   );
 }
 
-/** ===== простая модалка об успешной оплате ===== */
+/** ===== Success Modal ===== */
 function SuccessModal({ open, onClose, amount }: { open: boolean; onClose: () => void; amount: number }) {
   if (!open) return null;
   return (
@@ -393,51 +374,51 @@ function SuccessModal({ open, onClose, amount }: { open: boolean; onClose: () =>
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2 text-emerald-300">
             <ShieldCheck className="h-5 w-5" />
-            <span className="font-semibold">Оплата подтверждена</span>
+            <span className="font-semibold">Payment confirmed</span>
           </div>
           <button onClick={onClose} className="text-neutral-400 hover:text-neutral-200">✕</button>
         </div>
         <div className="space-y-2 text-sm text-neutral-200">
           <div className="flex items-center justify-between">
-            <span>Сумма</span>
+            <span>Amount</span>
             <span className="font-semibold text-white">{amount.toFixed(2)} USDT</span>
           </div>
-          <div className="text-xs text-neutral-300">Средства будут зачислены автоматически.</div>
+          <div className="text-xs text-neutral-300">Funds will be credited automatically.</div>
         </div>
         <div className="mt-4">
-          <Button onClick={onClose} className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700">Ок</Button>
+          <Button onClick={onClose} className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700">OK</Button>
         </div>
       </div>
     </div>
   );
 }
 
-/** ===== Вывод (демо) ===== */
+/** ===== Withdraw (mock) ===== */
 function WithdrawMock() {
   const [amount, setAmount] = useState<number>(50);
   const [addr, setAddr] = useState<string>("");
   const [status, setStatus] = useState<string>("idle");
 
   const submit = () => {
-    if (!addr || amount <= 0) { alert("Заполните адрес и сумму"); return; }
+    if (!addr || amount <= 0) { alert("Enter address and amount"); return; }
     setStatus(amount <= 100 ? "sent" : "manual");
   };
 
   return (
     <Card>
-      <CardHeader className="pb-2"><CardTitle>Вывод средств</CardTitle></CardHeader>
+      <CardHeader className="pb-2"><CardTitle>Withdraw</CardTitle></CardHeader>
       <CardContent className="space-y-3">
         <div className="grid gap-2">
-          <Label>Адрес (TRC20)</Label>
+          <Label>Address (TRC20)</Label>
           <Input
             value={addr}
             onChange={(e) => setAddr(e.target.value)}
-            placeholder="Вставьте адрес кошелька"
+            placeholder="Paste wallet address"
             className="rounded-xl bg-black/40 border-[#2a2f3a] text-white placeholder:text-neutral-400"
           />
         </div>
         <div className="grid gap-2">
-          <Label>Сумма (USDT)</Label>
+          <Label>Amount (USDT)</Label>
           <Input
             type="number"
             value={amount}
@@ -445,10 +426,10 @@ function WithdrawMock() {
             className="rounded-xl bg-black/40 border-[#2a2f3a] text-white placeholder:text-neutral-400"
           />
         </div>
-        <Button onClick={submit} className="rounded-2xl h-12">Подтвердить</Button>
+        <Button onClick={submit} className="rounded-2xl h-12">Confirm</Button>
         {status !== "idle" && (
           <div className="text-xs text-neutral-300">
-            Статус: {status === "sent" ? "Отправлено" : "Ожидает ручной проверки"}
+            Status: {status === "sent" ? "Sent" : "Pending manual review"}
           </div>
         )}
       </CardContent>
