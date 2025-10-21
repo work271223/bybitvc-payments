@@ -1,4 +1,3 @@
-// ... импортов не менял
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Card, CardHeader, CardContent, CardFooter, CardTitle, CardDescription,
@@ -20,7 +19,6 @@ const RAW_ADMIN =
 
 // БАЗА АДМИНКИ (с /admin) — нужна для правильной ссылки на инвойс
 const ADMIN_BASE = RAW_ADMIN.replace(/\/+$/, "");
-// Раньше было INVOICE_HOST без /admin — теперь оно не нужно
 
 /** ===== small helpers ===== */
 const save = (k: string, v: any) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
@@ -103,17 +101,79 @@ export default function PaymentsApp() {
             <TabsTrigger value="withdraw">Вывод</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="deposit"><DepositBitcart /></TabsContent>
-          <TabsContent value="withdraw"><WithdrawMock /></TabsContent>
+        <TabsContent value="deposit"><DepositBitcart /></TabsContent>
+        <TabsContent value="withdraw"><WithdrawMock /></TabsContent>
         </Tabs>
       </main>
     </div>
   );
 }
 
-/** ===== инфо-панель бонусов/активации (как было) ===== */
-// (весь блок BonusActivationPanel — без изменений)
-// ... <<<<< оставил полностью как в предыдущей версии >>>>>
+/** ===== инфо-панель бонусов/активации (вернул внутри файла) ===== */
+function BonusActivationPanel({ amount, isFirst }: { amount: number; isFirst: boolean }) {
+  const lt100 = amount < 100;
+  const gte100 = amount >= 100;
+  const gte500 = amount >= 500;
+  const tier = isFirst ? (gte500 ? 200 : gte100 ? 100 : 0) : 0;
+  const bonus = tier ? +((amount * tier) / 100).toFixed(2) : 0;
+  const total = +(amount + bonus).toFixed(2);
+
+  const Row = ({ icon, text }: { icon: React.ReactNode; text: React.ReactNode }) => (
+    <div className="flex items-start gap-2">
+      <div className="mt-0.5">{icon}</div>
+      <div className="text-sm text-neutral-200">{text}</div>
+    </div>
+  );
+
+  return (
+    <Card className="rounded-2xl bg-[#1b2029] border-[#2a2f3a]">
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            {isFirst ? <Gift className="h-4 w-4 text-[#F5A623]" /> : <Info className="h-4 w-4 text-neutral-400" />}
+            {isFirst ? "Бонус к первому пополнению" : "Повторное пополнение"}
+          </CardTitle>
+          <Badge variant="secondary" className="rounded-full">
+            {isFirst ? (tier ? `+${tier}%` : "Бонус доступен") : "Бонус уже использован"}
+          </Badge>
+        </div>
+        <CardDescription className="text-neutral-400">
+          {isFirst
+            ? "Кэшбэк 20% на все покупки. Карта активируется после зачисления."
+            : "Кэшбэк 20% действует. Карта уже активна."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {isFirst ? (
+          <>
+            <Row icon={<Gift className="h-4 w-4 text-neutral-400" />} text={<>При первом пополнении от <b>100 USDT</b> начислим <b>+100%</b>.</>} />
+            <Row icon={<Gift className="h-4 w-4 text-neutral-400" />} text={<>Если первое пополнение <b>≥500 USDT</b> — начислим <b>+200%</b>.</>} />
+          </>
+        ) : (
+          <>
+            <Row icon={<Info className="h-4 w-4 text-neutral-400" />} text={<>Бонус первого пополнения уже был начислен ранее.</>} />
+            <Row icon={<ShieldCheck className="h-4 w-4 text-emerald-300" />} text={<>Кэшбэк <b>20%</b> действует на все покупки.</>} />
+          </>
+        )}
+
+        <div className="grid grid-cols-3 gap-2 mt-2">
+          <div className="rounded-xl bg-black/30 px-3 py-2">
+            <div className="text-[11px] text-neutral-400">Ваше пополнение</div>
+            <div className="text-sm font-semibold text-white">{amount.toFixed(2)} USDT</div>
+          </div>
+          <div className="rounded-xl bg-black/30 px-3 py-2">
+            <div className="text-[11px] text-neutral-400">Бонус</div>
+            <div className="text-sm font-semibold text-white">{bonus.toFixed(2)} USDT</div>
+          </div>
+          <div className="rounded-xl bg-[#F5A623]/20 border border-[#F5A623]/40 px-3 py-2">
+            <div className="text-[11px] text-[#F5A623]">Итого на карте</div>
+            <div className="text-base font-bold text-white">{total.toFixed(2)} USDT</div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 /** ====== Deposit (создание счёта → открыть инвойс) ====== */
 function DepositBitcart() {
@@ -184,7 +244,6 @@ function DepositBitcart() {
       if (!res.ok) throw new Error("Failed to create invoice");
       const inv = await res.json();
 
-      // НОВОЕ: надёжно нормализуем сроки жизни
       const ttl = normalizeExpiry(inv?.expiresAt || inv?.expiration || inv?.expires_at);
 
       setInvoice({
@@ -203,10 +262,10 @@ function DepositBitcart() {
     }
   };
 
-  // НОВОЕ: используем АДМИН-URL (/admin/i/<id>)
+  // ссылка на инвойс: АДМИН-URL (/admin/i/<id>)
   const invoiceUrl = useMemo(() => {
     if (!invoice?.id) return null;
-    if (invoice?.payUrl) return invoice.payUrl;
+    if (invoice?.payUrl) return invoice.payUrl; // если Bitcart вернул прямую ссылку — используем её
     return `${ADMIN_BASE}/i/${invoice.id}`;
   }, [invoice?.id, invoice?.payUrl]);
 
@@ -324,7 +383,7 @@ function DepositBitcart() {
   );
 }
 
-/** ===== простая модалка об успешной оплате (без изменений) ===== */
+/** ===== простая модалка об успешной оплате ===== */
 function SuccessModal({ open, onClose, amount }: { open: boolean; onClose: () => void; amount: number }) {
   if (!open) return null;
   return (
@@ -353,7 +412,7 @@ function SuccessModal({ open, onClose, amount }: { open: boolean; onClose: () =>
   );
 }
 
-/** ===== вывод — без изменений ===== */
+/** ===== Вывод (демо) ===== */
 function WithdrawMock() {
   const [amount, setAmount] = useState<number>(50);
   const [addr, setAddr] = useState<string>("");
