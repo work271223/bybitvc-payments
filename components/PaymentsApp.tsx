@@ -1,22 +1,29 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Card, CardHeader, CardContent, CardFooter, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card, CardHeader, CardContent, CardFooter, CardTitle, CardDescription,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Clock, Loader2, ShieldCheck, Wallet } from "lucide-react";
+import {
+  Clock, Loader2, ShieldCheck, Wallet, Gift, Info,
+} from "lucide-react";
 
-/** ===== ENV ===== */
+/** ===== ENV / hosts ===== */
 const RAW_ADMIN =
-  (typeof process !== "undefined" && (process as any)?.env?.NEXT_PUBLIC_BITCART_ADMIN_URL) ||
+  (typeof process !== "undefined" &&
+    (process as any)?.env?.NEXT_PUBLIC_BITCART_ADMIN_URL) ||
   "https://pay.bybitpay.pro";
-/** База витрины без /admin в конце — для прямого открытия инвойса */
-const INVOICE_HOST = RAW_ADMIN.replace(/\/+$/, "").replace(/\/admin\/?$/i, "");
 
-/** ===== helpers ===== */
+// /admin → базовый хост витрины для прямой ссылки на /i/<id>
+const ADMIN_BASE = RAW_ADMIN.replace(/\/+$/, "");
+const INVOICE_HOST = ADMIN_BASE.replace(/\/admin\/?$/i, "");
+
+/** ===== small helpers ===== */
 const save = (k: string, v: any) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
-const load = <T,>(k: string, d: T): T => { try { const s = localStorage.getItem(k); return s ? JSON.parse(s) as T : d; } catch { return d; } };
+const load = <T,>(k: string, d: T): T => { try { const s = localStorage.getItem(k); return s ? (JSON.parse(s) as T) : d; } catch { return d; } };
 
 function guessUsername() {
   try {
@@ -30,6 +37,15 @@ function guessUsername() {
   return "guest";
 }
 
+function readDB() {
+  try {
+    return JSON.parse(localStorage.getItem("byvc.db") ?? '{"users":{}}') as { users: Record<string, any> };
+  } catch {
+    return { users: {} };
+  }
+}
+
+const pad = (n: number) => String(n).padStart(2, "0");
 function statusLabel(s: string) {
   switch (s) {
     case "pending": return "Ожидает оплаты";
@@ -39,8 +55,11 @@ function statusLabel(s: string) {
     default: return "Новый";
   }
 }
-const pad = (n: number) => String(n).padStart(2, "0");
 
+/** ===== networks (TRC20 only) ===== */
+const networks = [{ code: "TRC20", fee: 1, eta: "~3–5 мин" }];
+
+/** ============ MAIN APP ============ */
 export default function PaymentsApp() {
   const [tab, setTab] = useState("deposit");
   return (
@@ -55,7 +74,9 @@ export default function PaymentsApp() {
             <div className="font-semibold">Платёжный модуль</div>
           </div>
         </div>
-        <Badge className="rounded-full bg-[#F5A623]/15 text-[#F5A623] border border-[#F5A623]/40">Prototype</Badge>
+        <Badge className="rounded-full bg-[#F5A623]/15 text-[#F5A623] border border-[#F5A623]/40">
+          Prototype
+        </Badge>
       </header>
 
       <main className="max-w-md mx-auto">
@@ -64,37 +85,224 @@ export default function PaymentsApp() {
             <TabsTrigger value="deposit">Пополнение</TabsTrigger>
             <TabsTrigger value="withdraw">Вывод</TabsTrigger>
           </TabsList>
-          <TabsContent value="deposit"><Deposit /></TabsContent>
-          <TabsContent value="withdraw"><WithdrawMock /></TabsContent>
+
+        <TabsContent value="deposit"><DepositBitcart /></TabsContent>
+        <TabsContent value="withdraw"><WithdrawMock /></TabsContent>
         </Tabs>
       </main>
     </div>
   );
 }
 
-function Deposit() {
+/** ===== инфо-панель бонусов/активации (как было) ===== */
+function BonusActivationPanel({
+  amount, isFirst,
+}: { amount: number; isFirst: boolean }) {
+  const lt100 = amount < 100;
+  const gte100 = amount >= 100;
+  const gte500 = amount >= 500;
+  const tier = isFirst ? (gte500 ? 200 : gte100 ? 100 : 0) : 0;
+  const bonus = tier ? +(amount * tier / 100).toFixed(2) : 0;
+  const total = +(amount + bonus).toFixed(2);
+
+  const Calc = () => (
+    <div className="mt-2 grid grid-cols-3 gap-2">
+      <div className="rounded-xl bg-black/30 px-3 py-2">
+        <div className="text-[11px] text-neutral-400">Ваше пополнение</div>
+        <div className="text-sm font-semibold text-white">{amount.toFixed(2)} USDT</div>
+      </div>
+      <div className="rounded-xl bg-black/30 px-3 py-2">
+        <div className="text-[11px] text-neutral-400">Бонус {tier ? `+${tier}%` : "(нет)"}</div>
+        <div className="text-sm font-semibold text-white">{bonus.toFixed(2)} USDT</div>
+      </div>
+      <div className="rounded-xl bg-[#F5A623]/20 border border-[#F5A623]/40 px-3 py-2">
+        <div className="text-[11px] text-[#F5A623]">Итого будет на карте</div>
+        <div className="text-base font-bold text-white">{total.toFixed(2)} USDT</div>
+      </div>
+    </div>
+  );
+
+  if (!isFirst) {
+    if (lt100) {
+      return (
+        <Card className="rounded-2xl bg-[#1b2029] border-[#2a2f3a]">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Info className="h-4 w-4 text-yellow-400" />
+                Повторное пополнение
+              </CardTitle>
+              <Badge variant="secondary" className="rounded-full">Бонус уже использован</Badge>
+            </div>
+            <CardDescription className="text-neutral-400">Сумма менее 100 USDT — кэшбэк и активация не включаются</CardDescription>
+          </CardHeader>
+          <CardContent className="text-sm space-y-3 text-neutral-200">
+            <div className="flex items-start gap-2"><Gift className="h-4 w-4 text-neutral-400 mt-0.5" />Бонус первого пополнения уже был начислен ранее.</div>
+            <div className="flex items-start gap-2"><Info className="h-4 w-4 text-neutral-400 mt-0.5" />Кэшбэк 20% не включается при сумме &lt; 100 USDT.</div>
+            <div className="flex items-start gap-2"><ShieldCheck className="h-4 w-4 text-neutral-400 mt-0.5" />Карта активируется при пополнении от 100 USDT.</div>
+            <Calc />
+          </CardContent>
+        </Card>
+      );
+    }
+    return (
+      <Card className="rounded-2xl bg-[#1b2029] border-[#2a2f3a]">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2 text-emerald-300">
+              <ShieldCheck className="h-4 w-4" />
+              Повторное пополнение
+            </CardTitle>
+            <Badge variant="secondary" className="rounded-full">Бонус уже использован</Badge>
+          </div>
+          <CardDescription className="text-neutral-400">
+            Кэшбэк 20% действует на все покупки. Карта активна после зачисления.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="text-sm space-y-3 text-neutral-200">
+          <div className="flex items-start gap-2"><Gift className="h-4 w-4 text-neutral-400 mt-0.5" />Бонус первого пополнения недоступен повторно.</div>
+          <div className="flex items-start gap-2"><Info className="h-4 w-4 text-emerald-300 mt-0.5" />Кэшбэк <span className="font-semibold">20%</span> действует.</div>
+          <div className="flex items-start gap-2"><ShieldCheck className="h-4 w-4 text-emerald-300 mt-0.5" />Активация карты подтверждается пополнением.</div>
+          <Calc />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (lt100) {
+    const ex = 100, exBonus = 100, exTotal = 200;
+    return (
+      <Card className="rounded-2xl bg-[#1b2029] border-[#2a2f3a]">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Info className="h-4 w-4 text-yellow-400" />
+              Бонусы и активация
+            </CardTitle>
+            <Badge variant="secondary" className="rounded-full">Бонус доступен</Badge>
+          </div>
+          <CardDescription className="text-neutral-400">
+            Пополнение менее 100 USDT — без бонусов и активации. Бонус сохранится до первого пополнения ≥100 USDT.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="text-sm space-y-3 text-neutral-200">
+          <div className="flex items-start gap-2"><Gift className="h-4 w-4 text-neutral-400 mt-0.5" />При первом пополнении <span className="font-semibold">от 100 USDT</span> начислим <span className="font-semibold">+100%</span>.</div>
+          <div className="flex items-start gap-2"><Gift className="h-4 w-4 text-neutral-400 mt-0.5" />Если первое пополнение сразу <span className="font-semibold">≥500 USDT</span> — начислим <span className="font-semibold">+200%</span>.</div>
+          <div className="rounded-xl bg-black/30 p-3 text-xs text-neutral-300">
+            Например: пополнив на <span className="text-white font-semibold">{ex} USDT</span>, вы получили бы бонус <span className="text-[#F5A623] font-semibold">+{exBonus} USDT</span> и на карте было бы <span className="text-white font-semibold">{exTotal} USDT</span>.
+          </div>
+          <Calc />
+        </CardContent>
+        <CardFooter className="text-xs text-neutral-300">Бонус начисляется один раз при первом пополнении ≥100 USDT.</CardFooter>
+      </Card>
+    );
+  }
+
+  if (gte500) {
+    return (
+      <Card className="rounded-2xl bg-[#F5A623]/15 border border-[#F5A623]/40">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2 text-[#F5A623]">
+              <Gift className="h-4 w-4" />
+              Максимальный бонус к первому пополнению
+            </CardTitle>
+            <Badge className="rounded-full bg-[#F5A623]/20 text-[#F5A623] border border-[#F5A623]/40">Бонус доступен</Badge>
+          </div>
+          <CardDescription className="text-neutral-300">Первое пополнение ≥500 USDT даёт +200%.</CardDescription>
+        </CardHeader>
+        <CardContent className="text-sm space-y-3 text-neutral-100">
+          <div className="flex items-start gap-2"><Gift className="h-4 w-4 text-[#F5A623] mt-0.5" />Бонус к первому пополнению: <span className="font-semibold">+200%</span>.</div>
+          <div className="flex items-start gap-2"><Info className="h-4 w-4 text-[#F5A623] mt-0.5" />Кэшбэк <span className="font-semibold">20%</span> на все покупки.</div>
+          <div className="flex items-start gap-2"><ShieldCheck className="h-4 w-4 text-[#F5A623] mt-0.5" />Карта будет активирована автоматически после зачисления.</div>
+          <div className="mt-2" />
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            {/* пересчёт тут такой же как в Calc() */}
+            <div className="rounded-xl bg-black/30 px-3 py-2">
+              <div className="text-[11px] text-neutral-400">Ваше пополнение</div>
+              <div className="text-sm font-semibold text-white">{amount.toFixed(2)} USDT</div>
+            </div>
+            <div className="rounded-xl bg-black/30 px-3 py-2">
+              <div className="text-[11px] text-neutral-400">Бонус +200%</div>
+              <div className="text-sm font-semibold text-white">{(amount * 2).toFixed(2)} USDT</div>
+            </div>
+            <div className="rounded-xl bg-[#F5A623]/20 border border-[#F5A623]/40 px-3 py-2">
+              <div className="text-[11px] text-[#F5A623]">Итого будет на карте</div>
+              <div className="text-base font-bold text-white">{(amount * 3).toFixed(2)} USDT</div>
+            </div>
+          </div>
+        </CardContent>
+        <CardFooter className="text-xs text-neutral-200">После подтверждения сети бонус и кэшбэк применятся автоматически.</CardFooter>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="rounded-2xl bg-[#1b2029] border-[#2a2f3a]">
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2 text-emerald-300">
+            <ShieldCheck className="h-4 w-4" />
+            Бонусы будут начислены
+          </CardTitle>
+          <Badge variant="secondary" className="rounded-full">Бонус доступен</Badge>
+        </div>
+        <CardDescription className="text-neutral-400">Первое пополнение от 100 до 499.99 USDT даёт +100%.</CardDescription>
+      </CardHeader>
+      <CardContent className="text-sm space-y-3 text-neutral-200">
+        <div className="flex items-start gap-2"><Info className="h-4 w-4 text-emerald-300 mt-0.5" />Кэшбэк <span className="font-semibold">20%</span> на все покупки.</div>
+        <div className="flex items-start gap-2"><ShieldCheck className="h-4 w-4 text-emerald-300 mt-0.5" />Карта активируется автоматически после зачисления.</div>
+        {/* мини-калькулятор */}
+        <div className="mt-2 grid grid-cols-3 gap-2">
+          <div className="rounded-xl bg-black/30 px-3 py-2">
+            <div className="text-[11px] text-neutral-400">Ваше пополнение</div>
+            <div className="text-sm font-semibold text-white">{amount.toFixed(2)} USDT</div>
+          </div>
+          <div className="rounded-xl bg-black/30 px-3 py-2">
+            <div className="text-[11px] text-neutral-400">Бонус +100%</div>
+            <div className="text-sm font-semibold text-white">{(amount).toFixed(2)} USDT</div>
+          </div>
+          <div className="rounded-xl bg-[#F5A623]/20 border border-[#F5A623]/40 px-3 py-2">
+            <div className="text-[11px] text-[#F5A623]">Итого будет на карте</div>
+            <div className="text-base font-bold text-white">{(amount * 2).toFixed(2)} USDT</div>
+          </div>
+        </div>
+      </CardContent>
+      <CardFooter className="text-xs text-neutral-300">Бонус и кэшбэк применяются после подтверждения сети. Один раз.</CardFooter>
+    </Card>
+  );
+}
+
+/** ====== Deposit (создание счёта → открыть инвойс) ====== */
+function DepositBitcart() {
   const username = guessUsername();
+  const db = readDB();
+  const rec = db.users?.[username];
+  const bonusAlreadyApplied = !!rec?.bonuses?.firstBonusApplied;
+  const isFirstEligible = !bonusAlreadyApplied;
 
   const [amount, setAmount] = useState<number>(load("byvc.pay.amount", 100));
-  const network = "TRC20"; // фиксируем единственную сеть
   const [creating, setCreating] = useState(false);
-
   const [invoice, setInvoice] = useState<any>(load("byvc.pay.invoice", null));
   const [status, setStatus] = useState<string>(load("byvc.pay.status", "idle"));
   const [expiresAt, setExpiresAt] = useState<number>(load("byvc.pay.expiresAt", 0));
+  const [success, setSuccess] = useState<null | { amount: number }>(null);
 
   useEffect(() => save("byvc.pay.amount", amount), [amount]);
   useEffect(() => save("byvc.pay.invoice", invoice), [invoice]);
   useEffect(() => save("byvc.pay.status", status), [status]);
   useEffect(() => save("byvc.pay.expiresAt", expiresAt), [expiresAt]);
 
-  /** таймер истечения */
+  // таймер
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   const secs = useMemo(() => Math.max(0, Math.floor((expiresAt - now) / 1000)), [expiresAt, now]);
-  useEffect(() => { if (expiresAt && secs === 0 && status === "pending") setStatus("expired"); }, [secs, expiresAt, status]);
+  useEffect(() => {
+    if (!expiresAt) return;
+    if (secs === 0 && status === "pending") setStatus("expired");
+  }, [secs, expiresAt, status]);
 
-  /** поллинг оплаты */
+  // поллинг статуса
   useEffect(() => {
     if (!invoice?.id || status !== "pending") return;
     let stop = false;
@@ -106,20 +314,16 @@ function Deposit() {
         const st = (d.status || d.payment_status || d.state || "").toLowerCase();
         if (st.includes("confirmed") || st.includes("paid")) {
           setStatus("confirmed");
-          // небольшой таймаут, чтобы пользователь увидел статус, и затем сбрасываем UI
-          setTimeout(() => {
-            setInvoice(null);
-            setStatus("idle");
-            setExpiresAt(0);
-          }, 800);
+          setSuccess({ amount: Number(invoice.amount || 0) });
           stop = true;
+          // откат формы после закрытия модалки
         }
       } catch {}
     };
     const t = setInterval(() => !stop && poll(), 5000);
     poll();
     return () => { stop = true; clearInterval(t); };
-  }, [invoice?.id, status]);
+  }, [invoice?.id, status, invoice?.amount]);
 
   const createInvoice = async () => {
     setCreating(true);
@@ -128,8 +332,8 @@ function Deposit() {
         price: Number(amount || 0),
         currency: "USDT",
         username,
-        network,
-        metadata: { username, network },
+        network: "TRC20",
+        metadata: { username, network: "TRC20" },
       };
       const res = await fetch("/api/payments/deposits", {
         method: "POST",
@@ -159,16 +363,16 @@ function Deposit() {
     }
   };
 
-  /** ссылка на инвойс */
+  // надёжная ссылка на инвойс
   const invoiceUrl = useMemo(() => {
     if (!invoice?.id) return null;
-    if (invoice?.payUrl) return invoice.payUrl;            // приоритет — что вернул API
-    return `${INVOICE_HOST}/i/${invoice.id}`;              // фолбэк
+    if (invoice?.payUrl) return invoice.payUrl;
+    return `${INVOICE_HOST}/i/${invoice.id}`;
   }, [invoice?.id, invoice?.payUrl]);
 
   const openInvoice = () => {
-    if (!invoice?.id || !invoiceUrl) return;
-    window.open(invoiceUrl, "_blank", "noopener,noreferrer");
+    if (!invoice?.id) return;
+    window.open(invoiceUrl!, "_blank", "noopener,noreferrer");
   };
 
   const cancel = () => {
@@ -177,26 +381,45 @@ function Deposit() {
     setExpiresAt(0);
   };
 
+  const onCloseSuccess = () => {
+    setSuccess(null);
+    // полный откат
+    setInvoice(null);
+    setStatus("idle");
+    setExpiresAt(0);
+  };
+
+  const visibleAmount = invoice ? Number(invoice.amount || 0) : Number(amount || 0);
+
   return (
     <div className="space-y-4">
+      {/* Инфо-панель (как было) */}
+      <BonusActivationPanel amount={visibleAmount} isFirst={isFirstEligible} />
+
       <Card>
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <CardTitle>Пополнение через Bitcart</CardTitle>
             <Badge className="rounded-full bg-white/10">@{username}</Badge>
           </div>
-          <CardDescription className="text-neutral-400">Выберите сумму и создайте счёт</CardDescription>
+          <CardDescription className="text-neutral-400">
+            Выберите сумму и создайте счёт
+          </CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-3">
           {!invoice && (
             <>
-              <div className="grid gap-2">
-                <Label>Сеть</Label>
+              <div className="grid grid-cols-1 gap-2">
+                <div className="text-sm text-neutral-400">Сеть</div>
                 <div className="flex gap-2">
-                  <Button disabled className="rounded-xl bg-[#F5A623] text-black">TRC20</Button>
+                  <Button disabled className="rounded-xl bg-[#F5A623] text-black">
+                    {networks[0].code}
+                  </Button>
                 </div>
-                <div className="text-xs text-neutral-500">Комиссия ~1 USDT • ~3–5 мин</div>
+                <div className="text-xs text-neutral-500">
+                  Комиссия ~{networks[0].fee} USDT • {networks[0].eta}
+                </div>
               </div>
 
               <div className="grid gap-2">
@@ -256,21 +479,47 @@ function Deposit() {
         </CardFooter>
       </Card>
 
-      <Card className="rounded-2xl bg-[#1b2029] border-[#2a2f3a]">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-2 text-emerald-300">
-            <ShieldCheck className="h-4 w-4" />
-            Кэшбэк и активация
-          </CardTitle>
-          <CardDescription className="text-neutral-400">
-            Кэшбэк 20% действует на все покупки. Карта активируется автоматически после зачисления.
-          </CardDescription>
-        </CardHeader>
-      </Card>
+      {success && (
+        <SuccessModal open={!!success} onClose={onCloseSuccess} amount={success.amount} />
+      )}
     </div>
   );
 }
 
+/** ===== простая модалка об успешной оплате ===== */
+function SuccessModal({
+  open, onClose, amount,
+}: { open: boolean; onClose: () => void; amount: number }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-sm rounded-2xl bg-[#141821] border border-[#2a2f3a] p-5 shadow-xl">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2 text-emerald-300">
+            <ShieldCheck className="h-5 w-5" />
+            <span className="font-semibold">Оплата подтверждена</span>
+          </div>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-200">✕</button>
+        </div>
+        <div className="space-y-2 text-sm text-neutral-200">
+          <div className="flex items-center justify-between">
+            <span>Сумма</span>
+            <span className="font-semibold text-white">{amount.toFixed(2)} USDT</span>
+          </div>
+          <div className="text-xs text-neutral-300">
+            Средства будут зачислены автоматически.
+          </div>
+        </div>
+        <div className="mt-4">
+          <Button onClick={onClose} className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700">Ок</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** ===== вывод — как было ===== */
 function WithdrawMock() {
   const [amount, setAmount] = useState<number>(50);
   const [addr, setAddr] = useState<string>("");
