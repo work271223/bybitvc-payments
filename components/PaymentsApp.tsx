@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  Card, CardHeader, CardContent, CardFooter, CardTitle, CardDescription,
+  Card, CardHeader, CardContent, CardTitle, CardDescription,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -83,9 +83,6 @@ export default function PaymentsApp() {
             <div className="font-semibold">Payments Module</div>
           </div>
         </div>
-        <Badge className="rounded-full bg-[#F5A623]/15 text-[#F5A623] border border-[#F5A623]/40">
-          Prototype
-        </Badge>
       </header>
 
       <main className="max-w-md mx-auto">
@@ -105,12 +102,15 @@ export default function PaymentsApp() {
 
 /** ===== Info panel (Bonuses & activation) ===== */
 function BonusActivationPanel({ amount, isFirst }: { amount: number; isFirst: boolean }) {
-  const lt100 = amount < 100;
   const gte100 = amount >= 100;
   const gte500 = amount >= 500;
   const tier = isFirst ? (gte500 ? 200 : gte100 ? 100 : 0) : 0;
   const bonus = tier ? +((amount * tier) / 100).toFixed(2) : 0;
   const total = +(amount + bonus).toFixed(2);
+  const tier100TextClass = gte100 ? "text-emerald-300" : "text-neutral-200";
+  const tier500TextClass = gte500 ? "text-emerald-300" : "text-neutral-200";
+  const tier100IconClass = gte100 ? "text-emerald-300" : "text-neutral-400";
+  const tier500IconClass = gte500 ? "text-emerald-300" : "text-neutral-400";
 
   return (
     <Card className="rounded-2xl bg-[#1b2029] border-[#2a2f3a]">
@@ -133,13 +133,17 @@ function BonusActivationPanel({ amount, isFirst }: { amount: number; isFirst: bo
       <CardContent className="space-y-2">
         {isFirst ? (
           <>
-            <div className="flex items-start gap-2 text-sm text-neutral-200">
-              <Gift className="h-4 w-4 text-neutral-400 mt-0.5" />
-              On first deposit from <b>100 USDT</b> you get <b>+100%</b>.
+            <div className={`flex items-start gap-2 text-sm ${tier100TextClass}`}>
+              <Gift className={`h-4 w-4 mt-0.5 ${tier100IconClass}`} />
+              <span>
+                On first deposit <b>&ge;100&nbsp;USDT</b> you get <b>+100%</b>.
+              </span>
             </div>
-            <div className="flex items-start gap-2 text-sm text-neutral-200">
-              <Gift className="h-4 w-4 text-neutral-400 mt-0.5" />
-              On first deposit ≥500 USDT — you get <b>+200%</b>.
+            <div className={`flex items-start gap-2 text-sm ${tier500TextClass}`}>
+              <Gift className={`h-4 w-4 mt-0.5 ${tier500IconClass}`} />
+              <span>
+                On first deposit <b>&ge;500&nbsp;USDT</b> — you get <b>+200%</b>.
+              </span>
             </div>
           </>
         ) : (
@@ -181,7 +185,7 @@ function DepositBitcart() {
   const bonusAlreadyApplied = !!rec?.bonuses?.firstBonusApplied;
   const isFirstEligible = !bonusAlreadyApplied;
 
-  const [amount, setAmount] = useState<number>(load("byvc.pay.amount", 100));
+  const [amount, setAmount] = useState<number>(load("byvc.pay.amount", 300));
   const [creating, setCreating] = useState(false);
   const [invoice, setInvoice] = useState<any>(load("byvc.pay.invoice", null));
   const [status, setStatus] = useState<string>(load("byvc.pay.status", "idle"));
@@ -261,6 +265,10 @@ function DepositBitcart() {
     window.open(invoiceUrl, "_blank", "noopener,noreferrer");
   };
 
+  const openBybit = () => {
+    window.open("https://www.bybit.com/", "_blank", "noopener,noreferrer");
+  };
+
   const cancel = () => {
     setStatus("cancelled");
     setInvoice(null);
@@ -280,10 +288,7 @@ function DepositBitcart() {
 
       <Card>
         <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardTitle>Deposit via Bitcart</CardTitle>
-            <Badge className="rounded-full bg-white/10">@{username}</Badge>
-          </div>
+          <CardTitle>Deposit via Bitcart</CardTitle>
           <CardDescription className="text-neutral-400">
             Choose the amount and create an invoice
           </CardDescription>
@@ -295,7 +300,7 @@ function DepositBitcart() {
               <div className="grid grid-cols-1 gap-2">
                 <div className="text-sm text-neutral-400">Network</div>
                 <div className="flex gap-2">
-                  <Button disabled className="rounded-xl bg-[#F5A623] text-black">
+                  <Button className="rounded-xl bg-[#F5A623] text-black hover:bg-[#ffb739]">
                     {networks[0].code}
                   </Button>
                 </div>
@@ -340,21 +345,25 @@ function DepositBitcart() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <Button onClick={openInvoice} className="rounded-2xl bg-[#F5A623] text-black hover:bg-[#ffb739]">
-                  Go to payment
-                </Button>
-                <Button onClick={cancel} variant="secondary" className="rounded-2xl">
-                  Cancel
+              <div className="grid gap-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <Button onClick={openInvoice} className="rounded-2xl bg-[#F5A623] text-black hover:bg-[#ffb739]">
+                    Go to payment
+                  </Button>
+                  <Button onClick={cancel} variant="secondary" className="rounded-2xl">
+                    Cancel
+                  </Button>
+                </div>
+                <Button
+                  onClick={openBybit}
+                  className="rounded-2xl border border-[#2a2f3a] bg-black/40 text-white hover:bg-[#1f2532]"
+                >
+                  Open Bybit
                 </Button>
               </div>
             </>
           )}
         </CardContent>
-
-        <CardFooter className="text-xs text-neutral-400">
-          After network confirmation, funds will be credited automatically via webhook.
-        </CardFooter>
       </Card>
 
       {success && (
