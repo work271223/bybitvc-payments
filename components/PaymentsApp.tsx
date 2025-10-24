@@ -78,10 +78,7 @@ export default function PaymentsApp() {
           <div className="w-9 h-9 rounded-2xl bg-[#F5A623]/15 grid place-items-center">
             <Wallet className="h-5 w-5 text-[#F5A623]" />
           </div>
-          <div>
-            <div className="text-xs text-neutral-400">BYBIT VC</div>
-            <div className="font-semibold">Payments Module</div>
-          </div>
+          <div className="font-semibold">Bybit Virtual Card</div>
         </div>
       </header>
 
